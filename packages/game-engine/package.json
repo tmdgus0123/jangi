@@ -1,0 +1,16 @@
+{
+  "name": "@jangi/game-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "pnpm exec tsc -p tsconfig.json",
+    "lint": "eslint src tests --ext .ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@jangi/shared-types": "workspace:*"
+  }
+}

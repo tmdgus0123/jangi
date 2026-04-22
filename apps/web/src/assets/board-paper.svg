@@ -1,0 +1,23 @@
+<svg width="600" height="600" viewBox="0 0 600 600" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="paperBase" x1="0" y1="0" x2="600" y2="600" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7EFD9" />
+      <stop offset="1" stop-color="#E7D3AD" />
+    </linearGradient>
+    <pattern id="grain" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M-2 6C4 4 8 5 12 7C16 9 20 10 26 8" stroke="#B28246" stroke-opacity="0.12" stroke-width="1"/>
+      <path d="M-2 16C4 14 8 15 12 17C16 19 20 20 26 18" stroke="#9A6C37" stroke-opacity="0.1" stroke-width="1"/>
+      <circle cx="7" cy="11" r="0.8" fill="#8A5B2A" fill-opacity="0.08"/>
+      <circle cx="19" cy="3" r="0.8" fill="#8A5B2A" fill-opacity="0.08"/>
+      <circle cx="21" cy="21" r="0.8" fill="#8A5B2A" fill-opacity="0.08"/>
+    </pattern>
+  </defs>
+
+  <rect width="600" height="600" fill="url(#paperBase)" />
+  <rect width="600" height="600" fill="url(#grain)" />
+
+  <g opacity="0.15">
+    <path d="M0 120C90 108 130 126 210 120C290 114 340 98 420 112C500 126 540 116 600 106V170H0V120Z" fill="#B27A3E"/>
+    <path d="M0 360C90 350 150 374 220 366C300 357 350 334 430 347C510 360 548 352 600 340V405H0V360Z" fill="#A87239"/>
+  </g>
+</svg>
