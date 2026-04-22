@@ -355,7 +355,7 @@ describe('move helpers', () => {
     );
   });
 
-  it('detects check when generals are facing each other', () => {
+  it('does not treat facing generals as immediate check', () => {
     const board = createEmptyBoard();
     const redGeneral: Piece = {
       id: 'red-general',
