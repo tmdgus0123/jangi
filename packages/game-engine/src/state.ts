@@ -1,10 +1,4 @@
-import type {
-  Board,
-  GameState,
-  Piece,
-  PieceKind,
-  Side,
-} from '@jangi/shared-types';
+import type { Board, GameState, Piece, PieceKind, Side } from '@jangi/shared-types';
 
 const BOARD_WIDTH = 9;
 const BOARD_HEIGHT = 10;
@@ -18,13 +12,7 @@ export function toBoardIndex(x: number, y: number) {
   return y * BOARD_WIDTH + x;
 }
 
-function createPiece(
-  id: string,
-  kind: PieceKind,
-  side: Side,
-  x: number,
-  y: number
-): Piece {
+function createPiece(id: string, kind: PieceKind, side: Side, x: number, y: number): Piece {
   return {
     id,
     kind,
@@ -60,13 +48,8 @@ function getMinorKindsByLayout(
   }
 }
 
-function createBackRank(
-  side: Side,
-  homeRow: number,
-  backRankLayout: BackRankLayout
-): Piece[] {
-  const [kindAt1, kindAt2, kindAt6, kindAt7] =
-    getMinorKindsByLayout(backRankLayout);
+function createBackRank(side: Side, homeRow: number, backRankLayout: BackRankLayout): Piece[] {
+  const [kindAt1, kindAt2, kindAt6, kindAt7] = getMinorKindsByLayout(backRankLayout);
 
   return [
     createPiece(`${side}-chariot-1`, 'chariot', side, 0, homeRow),
@@ -94,10 +77,8 @@ function createSoldiers(side: Side, row: number): Piece[] {
 }
 
 function createOpeningPieces(options: InitialSetupOptions = {}): Piece[] {
-  const blueBackRankLayout =
-    options.blueBackRankLayout ?? 'elephant-horse-horse-elephant';
-  const redBackRankLayout =
-    options.redBackRankLayout ?? 'elephant-horse-horse-elephant';
+  const blueBackRankLayout = options.blueBackRankLayout ?? 'elephant-horse-horse-elephant';
+  const redBackRankLayout = options.redBackRankLayout ?? 'elephant-horse-horse-elephant';
 
   return [
     ...createBackRank('blue', 0, blueBackRankLayout),
@@ -111,13 +92,8 @@ function createOpeningPieces(options: InitialSetupOptions = {}): Piece[] {
   ];
 }
 
-export function createInitialGameState(
-  options: InitialSetupOptions = {}
-): GameState {
-  const board: Board = Array.from(
-    { length: BOARD_WIDTH * BOARD_HEIGHT },
-    () => null
-  );
+export function createInitialGameState(options: InitialSetupOptions = {}): GameState {
+  const board: Board = Array.from({ length: BOARD_WIDTH * BOARD_HEIGHT }, () => null);
   const openingPieces = createOpeningPieces(options);
 
   for (const piece of openingPieces) {

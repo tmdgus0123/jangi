@@ -1,12 +1,5 @@
 import { useState } from 'react';
-import type {
-  GameState,
-  MoveRecord,
-  Piece,
-  PieceKind,
-  Position,
-  Side,
-} from '@jangi/shared-types';
+import type { GameState, MoveRecord, Piece, PieceKind, Position, Side } from '@jangi/shared-types';
 import {
   applyMoveToGameState,
   type BackRankLayout,
@@ -61,11 +54,7 @@ function formatMoveRecord(moveRecord: MoveRecord) {
     ? ` × ${getPieceLabel(moveRecord.capturedPieceKind, capturedSide)}`
     : '';
   const checkLabel =
-    moveRecord.endReason === 'checkmate'
-      ? ' · 외통'
-      : moveRecord.resultedInCheck
-        ? ' · 장군'
-        : '';
+    moveRecord.endReason === 'checkmate' ? ' · 외통' : moveRecord.resultedInCheck ? ' · 장군' : '';
 
   return `${moveRecord.turn}. ${sideLabel(moveRecord.side)} ${pieceLabel} ${formatPosition(moveRecord.move.from)} -> ${formatPosition(moveRecord.move.to)}${captureLabel}${checkLabel}`;
 }
@@ -258,9 +247,7 @@ function App() {
       redBackRankLayout: 'elephant-horse-horse-elephant',
     })
   );
-  const [selectedPosition, setSelectedPosition] = useState<Position | null>(
-    null
-  );
+  const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
 
   const boardCells = Array.from(
     { length: boardDimensions.width * boardDimensions.height },
@@ -277,19 +264,13 @@ function App() {
   );
 
   const selectedPiece = selectedPosition
-    ? getPieceAtPosition(
-        gameState.board,
-        selectedPosition.x,
-        selectedPosition.y
-      )
+    ? getPieceAtPosition(gameState.board, selectedPosition.x, selectedPosition.y)
     : null;
   const legalMoves =
     selectedPiece && selectedPiece.side === gameState.currentTurn
       ? getLegalMoves(gameState.board, selectedPiece)
       : [];
-  const legalMoveMap = new Map(
-    legalMoves.map((move) => [`${move.to.x}-${move.to.y}`, move])
-  );
+  const legalMoveMap = new Map(legalMoves.map((move) => [`${move.to.x}-${move.to.y}`, move]));
   const redCheck = isInCheck(gameState.board, 'red');
   const blueCheck = isInCheck(gameState.board, 'blue');
   const redGeneralPosition = findGeneralPosition(gameState.board, 'red');
@@ -317,9 +298,7 @@ function App() {
     const selectedMove = legalMoveMap.get(`${x}-${y}`);
 
     if (selectedPiece && selectedMove) {
-      setGameState((currentGameState) =>
-        applyMoveToGameState(currentGameState, selectedMove)
-      );
+      setGameState((currentGameState) => applyMoveToGameState(currentGameState, selectedMove));
       setSelectedPosition(null);
       return;
     }
@@ -375,18 +354,15 @@ function App() {
         <p className="eyebrow">Korean Chess</p>
         <h1>Jangi</h1>
         <p className="description">
-          규칙 엔진으로 생성한 초기 대국 상태를 실제 장기판 형태로 렌더링하고,
-          현재 턴 기준의 말 선택, 이동 하이라이트, 수 적용 인터랙션까지
-          연결했습니다.
+          규칙 엔진으로 생성한 초기 대국 상태를 실제 장기판 형태로 렌더링하고, 현재 턴 기준의 말
+          선택, 이동 하이라이트, 수 적용 인터랙션까지 연결했습니다.
         </p>
 
         <div className="status-list">
           <div>
             <span className="status-label">대국 상태</span>
             <strong>
-              {gameState.status === 'ended'
-                ? '종료'
-                : `${sideLabel(gameState.currentTurn)} 차례`}
+              {gameState.status === 'ended' ? '종료' : `${sideLabel(gameState.currentTurn)} 차례`}
             </strong>
           </div>
           <div>
@@ -399,20 +375,12 @@ function App() {
           </div>
           <div>
             <span className="status-label">마지막 수</span>
-            <strong>
-              {gameState.lastMove
-                ? formatMoveRecord(gameState.lastMove)
-                : '없음'}
-            </strong>
+            <strong>{gameState.lastMove ? formatMoveRecord(gameState.lastMove) : '없음'}</strong>
           </div>
         </div>
 
-        {gameResultText ? (
-          <div className="result-banner">{gameResultText}</div>
-        ) : null}
-        {currentCheckText ? (
-          <div className="check-banner">{currentCheckText}</div>
-        ) : null}
+        {gameResultText ? <div className="result-banner">{gameResultText}</div> : null}
+        {currentCheckText ? <div className="check-banner">{currentCheckText}</div> : null}
 
         <div className="action-row">
           <div className="layout-row" role="group" aria-label="opening-layout">
@@ -420,57 +388,41 @@ function App() {
             <div className="layout-side-group">
               <span className="layout-side-label">한</span>
               <div className="layout-button-group">
-                {(Object.keys(backRankLayoutLabels) as BackRankLayout[]).map(
-                  (layoutKey) => (
-                    <button
-                      className={`layout-button ${blueBackRankLayout === layoutKey ? 'layout-button-active' : ''}`}
-                      key={`blue-${layoutKey}`}
-                      onClick={() => changeBackRankLayout('blue', layoutKey)}
-                      type="button"
-                    >
-                      {backRankLayoutLabels[layoutKey]}
-                    </button>
-                  )
-                )}
+                {(Object.keys(backRankLayoutLabels) as BackRankLayout[]).map((layoutKey) => (
+                  <button
+                    className={`layout-button ${blueBackRankLayout === layoutKey ? 'layout-button-active' : ''}`}
+                    key={`blue-${layoutKey}`}
+                    onClick={() => changeBackRankLayout('blue', layoutKey)}
+                    type="button"
+                  >
+                    {backRankLayoutLabels[layoutKey]}
+                  </button>
+                ))}
               </div>
             </div>
             <div className="layout-side-group">
               <span className="layout-side-label">초</span>
               <div className="layout-button-group">
-                {(Object.keys(backRankLayoutLabels) as BackRankLayout[]).map(
-                  (layoutKey) => (
-                    <button
-                      className={`layout-button ${redBackRankLayout === layoutKey ? 'layout-button-active' : ''}`}
-                      key={`red-${layoutKey}`}
-                      onClick={() => changeBackRankLayout('red', layoutKey)}
-                      type="button"
-                    >
-                      {backRankLayoutLabels[layoutKey]}
-                    </button>
-                  )
-                )}
+                {(Object.keys(backRankLayoutLabels) as BackRankLayout[]).map((layoutKey) => (
+                  <button
+                    className={`layout-button ${redBackRankLayout === layoutKey ? 'layout-button-active' : ''}`}
+                    key={`red-${layoutKey}`}
+                    onClick={() => changeBackRankLayout('red', layoutKey)}
+                    type="button"
+                  >
+                    {backRankLayoutLabels[layoutKey]}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
-          <button
-            className="reset-button"
-            onClick={() => resetGame()}
-            type="button"
-          >
+          <button className="reset-button" onClick={() => resetGame()} type="button">
             초기 배치로 되돌리기
           </button>
-          <button
-            className="demo-button"
-            onClick={loadCheckmateDemo}
-            type="button"
-          >
+          <button className="demo-button" onClick={loadCheckmateDemo} type="button">
             체크메이트 데모 시나리오 로드
           </button>
-          <button
-            className="demo-button"
-            onClick={loadGeneralCaptureDemo}
-            type="button"
-          >
+          <button className="demo-button" onClick={loadGeneralCaptureDemo} type="button">
             장 포획 데모 시나리오 로드
           </button>
           <p className="helper-copy">
@@ -490,9 +442,7 @@ function App() {
               : '아직 수가 기록되지 않았습니다.'}
           </p>
           <ol className="move-log-list">
-            {gameState.moveHistory.length === 0 ? (
-              <li>대국 시작 대기 중</li>
-            ) : null}
+            {gameState.moveHistory.length === 0 ? <li>대국 시작 대기 중</li> : null}
             {gameState.moveHistory
               .slice()
               .reverse()
@@ -525,10 +475,7 @@ function App() {
 
             <div className="board-grid" aria-label="jangi-board-preview">
               {boardCells.map(({ x, y, piece }) => {
-                const isPalace =
-                  x >= 3 &&
-                  x <= 5 &&
-                  ((y >= 0 && y <= 2) || (y >= 7 && y <= 9));
+                const isPalace = x >= 3 && x <= 5 && ((y >= 0 && y <= 2) || (y >= 7 && y <= 9));
                 const isDiagDownRight =
                   (x === 3 && y === 0) ||
                   (x === 4 && y === 1) ||
@@ -576,22 +523,13 @@ function App() {
                       />
                     ) : null}
                     {isPalace && isDiagUpLeft ? (
-                      <span
-                        aria-hidden="true"
-                        className="palace-diagonal-segment diag-up-left"
-                      />
+                      <span aria-hidden="true" className="palace-diagonal-segment diag-up-left" />
                     ) : null}
                     {isPalace && isDiagDownLeft ? (
-                      <span
-                        aria-hidden="true"
-                        className="palace-diagonal-segment diag-down-left"
-                      />
+                      <span aria-hidden="true" className="palace-diagonal-segment diag-down-left" />
                     ) : null}
                     {isPalace && isDiagUpRight ? (
-                      <span
-                        aria-hidden="true"
-                        className="palace-diagonal-segment diag-up-right"
-                      />
+                      <span aria-hidden="true" className="palace-diagonal-segment diag-up-right" />
                     ) : null}
                     <span className="cell-coordinate">
                       {x + 1},{y + 1}
@@ -623,12 +561,7 @@ function App() {
       </section>
 
       {gameResultText ? (
-        <div
-          className="result-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label="game-result"
-        >
+        <div className="result-overlay" role="dialog" aria-modal="true" aria-label="game-result">
           <div className="result-card">
             <p className="eyebrow">Game Result</p>
             <h2>{gameResultText}</h2>
@@ -637,11 +570,7 @@ function App() {
                 ? formatMoveRecord(gameState.lastMove)
                 : '마지막 수 기록이 없습니다.'}
             </p>
-            <button
-              className="reset-button"
-              onClick={() => resetGame()}
-              type="button"
-            >
+            <button className="reset-button" onClick={() => resetGame()} type="button">
               다시 시작
             </button>
           </div>

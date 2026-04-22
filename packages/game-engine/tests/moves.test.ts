@@ -198,9 +198,7 @@ describe('getLegalMoves', () => {
 
     const moves = getLegalMoves(board, redGeneral);
 
-    expect(moves).toEqual(
-      expect.arrayContaining([{ from: { x: 4, y: 8 }, to: { x: 4, y: 7 } }])
-    );
+    expect(moves).toEqual(expect.arrayContaining([{ from: { x: 4, y: 8 }, to: { x: 4, y: 7 } }]));
   });
 });
 
@@ -344,9 +342,7 @@ describe('move helpers', () => {
 
     const moves = getLegalMoves(board, blocker);
 
-    expect(moves).toEqual(
-      expect.arrayContaining([{ from: { x: 4, y: 6 }, to: { x: 4, y: 5 } }])
-    );
+    expect(moves).toEqual(expect.arrayContaining([{ from: { x: 4, y: 6 }, to: { x: 4, y: 5 } }]));
     expect(moves).not.toEqual(
       expect.arrayContaining([{ from: { x: 4, y: 6 }, to: { x: 3, y: 6 } }])
     );

@@ -30,9 +30,7 @@ function isRedPalacePosition(position: Position) {
 }
 
 function isInsideBoard(position: Position) {
-  return (
-    position.x >= 0 && position.x < 9 && position.y >= 0 && position.y < 10
-  );
+  return position.x >= 0 && position.x < 9 && position.y >= 0 && position.y < 10;
 }
 
 function isInsidePalace(position: Position) {
@@ -75,12 +73,7 @@ function isFriendlyPiece(target: Piece | null, side: Side) {
   return Boolean(target && target.side === side);
 }
 
-function addMoveIfAvailable(
-  board: Board,
-  piece: Piece,
-  moves: Move[],
-  to: Position
-) {
+function addMoveIfAvailable(board: Board, piece: Piece, moves: Move[], to: Position) {
   if (!isInsideBoard(to)) {
     return;
   }
@@ -180,10 +173,7 @@ function getHorseMoves(board: Board, piece: Piece) {
       x: piece.position.x + pattern.leg.x,
       y: piece.position.y + pattern.leg.y,
     };
-    if (
-      !isInsideBoard(legPosition) ||
-      getPieceAtPosition(board, legPosition.x, legPosition.y)
-    ) {
+    if (!isInsideBoard(legPosition) || getPieceAtPosition(board, legPosition.x, legPosition.y)) {
       continue;
     }
 
@@ -377,10 +367,7 @@ function getPseudoLegalMoves(board: Board, piece: Piece): Move[] {
 }
 
 function findGeneral(board: Board, side: Side) {
-  return (
-    board.find((piece) => piece?.kind === 'general' && piece.side === side) ??
-    null
-  );
+  return board.find((piece) => piece?.kind === 'general' && piece.side === side) ?? null;
 }
 
 function getOpposingSide(side: Side): Side {
@@ -399,16 +386,12 @@ export function isInCheck(board: Board, side: Side) {
     }
 
     return getPseudoLegalMoves(board, piece).some(
-      (move) =>
-        move.to.x === general.position.x && move.to.y === general.position.y
+      (move) => move.to.x === general.position.x && move.to.y === general.position.y
     );
   });
 }
 
-export function getAllLegalMovesForSide(
-  board: Board,
-  side: Side
-): MoveRecord[] {
+export function getAllLegalMovesForSide(board: Board, side: Side): MoveRecord[] {
   const legalMoves: MoveRecord[] = [];
 
   for (const piece of board) {
@@ -436,9 +419,7 @@ export function getAllLegalMovesForSide(
 }
 
 export function isCheckmate(board: Board, side: Side) {
-  return (
-    isInCheck(board, side) && getAllLegalMovesForSide(board, side).length === 0
-  );
+  return isInCheck(board, side) && getAllLegalMovesForSide(board, side).length === 0;
 }
 
 export function getLegalMoves(board: Board, piece: Piece): Move[] {
@@ -449,9 +430,7 @@ export function getLegalMoves(board: Board, piece: Piece): Move[] {
 }
 
 export function isLegalMove(board: Board, piece: Piece, to: Position) {
-  return getLegalMoves(board, piece).some(
-    (move) => move.to.x === to.x && move.to.y === to.y
-  );
+  return getLegalMoves(board, piece).some((move) => move.to.x === to.x && move.to.y === to.y);
 }
 
 export function applyMove(board: Board, move: Move) {
@@ -471,19 +450,12 @@ export function applyMove(board: Board, move: Move) {
   return nextBoard;
 }
 
-export function applyMoveToGameState(
-  gameState: GameState,
-  move: Move
-): GameState {
+export function applyMoveToGameState(gameState: GameState, move: Move): GameState {
   if (gameState.status === 'ended') {
     return gameState;
   }
 
-  const movingPiece = getPieceAtPosition(
-    gameState.board,
-    move.from.x,
-    move.from.y
-  );
+  const movingPiece = getPieceAtPosition(gameState.board, move.from.x, move.from.y);
   if (!movingPiece || movingPiece.side !== gameState.currentTurn) {
     return gameState;
   }
@@ -492,11 +464,7 @@ export function applyMoveToGameState(
     return gameState;
   }
 
-  const capturedPiece = getPieceAtPosition(
-    gameState.board,
-    move.to.x,
-    move.to.y
-  );
+  const capturedPiece = getPieceAtPosition(gameState.board, move.to.x, move.to.y);
   const nextBoard = applyMove(gameState.board, move);
   const nextTurn = getOpposingSide(gameState.currentTurn);
   const oppositeGeneral = findGeneral(nextBoard, nextTurn);

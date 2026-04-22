@@ -2,19 +2,10 @@
   font-family: 'Pretendard Variable', 'Apple SD Gothic Neo', sans-serif;
   color: #1f1711;
   background:
-    radial-gradient(
-      circle at 9% 12%,
-      rgba(176, 106, 37, 0.22),
-      transparent 30%
-    ),
-    radial-gradient(
-      circle at 84% 20%,
-      rgba(91, 133, 181, 0.16),
-      transparent 26%
-    ),
+    radial-gradient(circle at 9% 12%, rgba(176, 106, 37, 0.22), transparent 30%),
+    radial-gradient(circle at 84% 20%, rgba(91, 133, 181, 0.16), transparent 26%),
     radial-gradient(circle at 72% 82%, rgba(132, 91, 40, 0.2), transparent 28%),
-    url('./assets/board-paper.svg'),
-    linear-gradient(180deg, #f4e6ca 0%, #ead8b6 100%);
+    url('./assets/board-paper.svg'), linear-gradient(180deg, #f4e6ca 0%, #ead8b6 100%);
   background-attachment: fixed;
 }
 
@@ -44,11 +35,7 @@ body {
   border: 1px solid rgba(82, 52, 24, 0.15);
   border-radius: 24px;
   background:
-    linear-gradient(
-      140deg,
-      rgba(255, 251, 244, 0.9),
-      rgba(250, 236, 204, 0.86)
-    ),
+    linear-gradient(140deg, rgba(255, 251, 244, 0.9), rgba(250, 236, 204, 0.86)),
     url('./assets/board-paper.svg');
   backdrop-filter: blur(8px);
   box-shadow:
@@ -145,11 +132,7 @@ p {
 }
 
 .layout-button-active {
-  background: linear-gradient(
-    135deg,
-    rgba(138, 75, 20, 0.95),
-    rgba(186, 108, 31, 0.95)
-  );
+  background: linear-gradient(135deg, rgba(138, 75, 20, 0.95), rgba(186, 108, 31, 0.95));
   border-color: rgba(138, 75, 20, 0.95);
   color: #fff8ef;
 }
@@ -189,11 +172,7 @@ p {
   margin-top: 20px;
   padding: 14px 16px;
   border-radius: 18px;
-  background: linear-gradient(
-    135deg,
-    rgba(151, 42, 22, 0.9),
-    rgba(188, 102, 28, 0.88)
-  );
+  background: linear-gradient(135deg, rgba(151, 42, 22, 0.9), rgba(188, 102, 28, 0.88));
   color: #fff8ef;
   font-weight: 800;
 }
@@ -273,11 +252,7 @@ p {
   gap: 0;
   background:
     linear-gradient(180deg, rgba(155, 94, 24, 0.14), rgba(131, 81, 24, 0.26)),
-    linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.35),
-      rgba(255, 240, 214, 0.28)
-    ),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.35), rgba(255, 240, 214, 0.28)),
     url('./assets/board-paper.svg');
   padding: 14px;
   border-radius: 20px;
@@ -349,11 +324,7 @@ p {
 }
 
 .palace-cell {
-  background: radial-gradient(
-    circle at center,
-    rgba(211, 162, 83, 0.12),
-    transparent 60%
-  );
+  background: radial-gradient(circle at center, rgba(211, 162, 83, 0.12), transparent 60%);
 }
 
 .palace-diagonal-segment {
@@ -398,11 +369,7 @@ p {
 }
 
 .move-target {
-  background: radial-gradient(
-    circle at center,
-    rgba(191, 142, 67, 0.22),
-    transparent 65%
-  );
+  background: radial-gradient(circle at center, rgba(191, 142, 67, 0.22), transparent 65%);
 }
 
 .capture-target {
@@ -522,16 +489,7 @@ p {
   width: 76%;
   height: 76%;
   border-radius: 0;
-  clip-path: polygon(
-    50% 2%,
-    80% 12%,
-    98% 50%,
-    80% 88%,
-    50% 98%,
-    20% 88%,
-    2% 50%,
-    20% 12%
-  );
+  clip-path: polygon(50% 2%, 80% 12%, 98% 50%, 80% 88%, 50% 98%, 20% 88%, 2% 50%, 20% 12%);
   border: 1px solid rgba(87, 55, 21, 0.12);
   background: rgba(255, 254, 248, 0.2);
   box-shadow: 0 8px 16px rgba(99, 66, 29, 0.12);
