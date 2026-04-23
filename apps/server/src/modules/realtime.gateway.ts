@@ -10,7 +10,10 @@ import {
 import type {
   GameErrorSocketEvent,
   GameMoveSocketPayload,
+  GameRematchSocketPayload,
+  GameResignSocketPayload,
   GameStartSocketEvent,
+  GameTickSocketEvent,
   GameUpdateSocketEvent,
   LobbyJoinSocketPayload,
   LobbyUpdateSocketEvent,
@@ -29,6 +32,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   server!: Server;
 
   private readonly clientLobbyMap = new Map<string, { inviteCode: string; guestId: string }>();
+
+  private readonly tickIntervals = new Map<string, ReturnType<typeof setInterval>>();
 
   constructor(private readonly lobbyService: LobbyService) {}
 
@@ -67,12 +72,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
 
     try {
-      const gameState = this.lobbyService.ensureGameSession(normalizedCode);
+      const { gameState, timers } = this.lobbyService.ensureGameSession(normalizedCode);
       const gameStartEvent: GameStartSocketEvent = {
         lobby,
         gameState,
+        timers,
       };
       this.server.to(normalizedCode).emit('game:start', gameStartEvent);
+      this.startTickInterval(normalizedCode);
     } catch (error) {
       this.emitGameError(client, 'GAME_START_FAILED', this.toErrorMessage(error));
     }
@@ -94,14 +101,87 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
 
     try {
-      const { lobby, gameState } = this.lobbyService.applyMove(normalizedCode, payload.guestId, payload.move);
+      const { lobby, gameState, timers } = this.lobbyService.applyMove(normalizedCode, payload.guestId, payload.move);
       const gameUpdateEvent: GameUpdateSocketEvent = {
         lobby,
         gameState,
+        timers,
       };
       this.server.to(normalizedCode).emit('game:update', gameUpdateEvent);
+      if (gameState.status === 'ended') {
+        this.stopTickInterval(normalizedCode);
+      }
     } catch (error) {
       this.emitGameError(client, this.toErrorCode(error), this.toErrorMessage(error));
+    }
+  }
+
+  @SubscribeMessage('game:resign')
+  handleGameResign(@ConnectedSocket() client: Socket, @MessageBody() payload: GameResignSocketPayload) {
+    const joinedInfo = this.clientLobbyMap.get(client.id);
+    if (!joinedInfo) {
+      this.emitGameError(client, 'NOT_JOINED', '먼저 로비에 참여해야 합니다.');
+      return;
+    }
+
+    const normalizedCode = payload.inviteCode.trim().toUpperCase();
+    try {
+      const { lobby, gameState, timers } = this.lobbyService.resignGame(normalizedCode, payload.guestId);
+      const gameUpdateEvent: GameUpdateSocketEvent = { lobby, gameState, timers };
+      this.server.to(normalizedCode).emit('game:update', gameUpdateEvent);
+      this.stopTickInterval(normalizedCode);
+    } catch (error) {
+      this.emitGameError(client, this.toErrorCode(error), this.toErrorMessage(error));
+    }
+  }
+
+  @SubscribeMessage('game:rematch')
+  handleGameRematch(@ConnectedSocket() client: Socket, @MessageBody() payload: GameRematchSocketPayload) {
+    const normalizedCode = payload.inviteCode.trim().toUpperCase();
+    try {
+      const result = this.lobbyService.requestRematch(normalizedCode, payload.guestId);
+      if (!result.started) {
+        // Notify room that this player wants a rematch
+        this.server.to(normalizedCode).emit('game:rematch-requested', { guestId: payload.guestId });
+        return;
+      }
+      const { lobby, gameState, timers } = result;
+      const gameStartEvent: GameStartSocketEvent = { lobby, gameState, timers };
+      this.server.to(normalizedCode).emit('game:start', gameStartEvent);
+      this.startTickInterval(normalizedCode);
+    } catch (error) {
+      this.emitGameError(client, this.toErrorCode(error), this.toErrorMessage(error));
+    }
+  }
+
+  private startTickInterval(inviteCode: string) {
+    if (this.tickIntervals.has(inviteCode)) return; // already running
+    const interval = setInterval(() => {
+      const result = this.lobbyService.checkAndHandleTimeout(inviteCode);
+      if (result) {
+        // Timed out
+        const gameUpdateEvent: GameUpdateSocketEvent = { lobby: result.lobby, gameState: result.gameState, timers: result.timers };
+        this.server.to(inviteCode).emit('game:update', gameUpdateEvent);
+        this.stopTickInterval(inviteCode);
+        return;
+      }
+      try {
+        const timers = this.lobbyService.computeCurrentTimers(inviteCode);
+        const tickEvent: GameTickSocketEvent = { timers };
+        this.server.to(inviteCode).emit('game:tick', tickEvent);
+      } catch {
+        // timer not found, stop
+        this.stopTickInterval(inviteCode);
+      }
+    }, 1000);
+    this.tickIntervals.set(inviteCode, interval);
+  }
+
+  private stopTickInterval(inviteCode: string) {
+    const interval = this.tickIntervals.get(inviteCode);
+    if (interval) {
+      clearInterval(interval);
+      this.tickIntervals.delete(inviteCode);
     }
   }
 
@@ -127,6 +207,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       CANNOT_MOVE_OPPONENT_PIECE: '상대 기물은 움직일 수 없습니다.',
       ILLEGAL_MOVE: '불법 수입니다.',
       GAME_ALREADY_ENDED: '이미 종료된 대국입니다.',
+      GAME_NOT_STARTED: '게임이 시작되지 않았습니다.',
     };
 
     return messageMap[error.message] ?? '요청 처리 중 오류가 발생했습니다.';

@@ -4,7 +4,10 @@ import type {
   CreateLobbyRequest,
   GameErrorSocketEvent,
   GameMoveSocketPayload,
+  GameRematchSocketPayload,
+  GameResignSocketPayload,
   GameStartSocketEvent,
+  GameTickSocketEvent,
   GameUpdateSocketEvent,
   GameState,
   GuestSession,
@@ -15,6 +18,7 @@ import type {
   MoveRecord,
   Piece,
   PieceKind,
+  PlayerTimers,
   Position,
   Side,
 } from '@jangi/shared-types';
@@ -79,6 +83,13 @@ function formatMoveRecord(moveRecord: MoveRecord) {
     moveRecord.endReason === 'checkmate' ? ' · 외통' : moveRecord.resultedInCheck ? ' · 장군' : '';
 
   return `${moveRecord.turn}. ${sideLabel(moveRecord.side)} ${pieceLabel} ${formatPosition(moveRecord.move.from)} -> ${formatPosition(moveRecord.move.to)}${captureLabel}${checkLabel}`;
+}
+
+function formatMs(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 function isSamePosition(left: Position | null, right: Position) {
@@ -277,6 +288,9 @@ function App() {
   const [lobbyMessage, setLobbyMessage] = useState('');
   const [isLobbySubmitting, setIsLobbySubmitting] = useState(false);
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  const [timers, setTimers] = useState<PlayerTimers | null>(null);
+  const [displayTimers, setDisplayTimers] = useState<PlayerTimers | null>(null);
+  const [rematchRequestedBy, setRematchRequestedBy] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
 
   const activeInviteCode = lobby?.inviteCode ?? null;
@@ -334,6 +348,9 @@ function App() {
       setLobby(event.lobby);
       setGameState(event.gameState);
       setSelectedPosition(null);
+      setTimers(event.timers);
+      setDisplayTimers(event.timers);
+      setRematchRequestedBy(null);
       setLobbyMessage('양쪽 플레이어가 준비되어 대국이 시작되었습니다.');
     });
 
@@ -341,13 +358,19 @@ function App() {
       setLobby(event.lobby);
       setGameState(event.gameState);
       setSelectedPosition(null);
+      setTimers(event.timers);
+      setDisplayTimers(event.timers);
       if (event.gameState.status === 'ended') {
         setLobbyMessage('대국이 종료되었습니다.');
       }
     });
 
-    socket.on('game:error', (event: GameErrorSocketEvent) => {
-      setLobbyMessage(event.message);
+    socket.on('game:tick', (event: GameTickSocketEvent) => {
+      setTimers(event.timers);
+    });
+
+    socket.on('game:rematch-requested', (event: { guestId: string }) => {
+      setRematchRequestedBy(event.guestId);
     });
 
     return () => {
@@ -356,8 +379,24 @@ function App() {
         socketRef.current = null;
       }
       setIsRealtimeConnected(false);
+      setTimers(null);
+      setDisplayTimers(null);
     };
   }, [activeInviteCode, guestSession, lobbyStatus]);
+
+  // Local timer interpolation: update displayTimers every 200ms while game is active
+  useEffect(() => {
+    if (!timers || !isOnlineGame || gameState.status === 'ended') return;
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - timers.turnStartedAt;
+      setDisplayTimers({
+        ...timers,
+        redMs: timers.activeSide === 'red' ? Math.max(0, timers.redMs - elapsed) : timers.redMs,
+        blueMs: timers.activeSide === 'blue' ? Math.max(0, timers.blueMs - elapsed) : timers.blueMs,
+      });
+    }, 200);
+    return () => clearInterval(interval);
+  }, [timers, isOnlineGame, gameState.status]);
 
   const boardCells = Array.from(
     { length: boardDimensions.width * boardDimensions.height },
@@ -450,6 +489,26 @@ function App() {
     }
 
     setSelectedPosition(null);
+  }
+
+  function handleResign() {
+    if (!socketRef.current || !lobby || !guestSession) return;
+    if (!window.confirm('기권하시겠습니까? 상대방이 승리합니다.')) return;
+    const payload: GameResignSocketPayload = {
+      inviteCode: lobby.inviteCode,
+      guestId: guestSession.guestId,
+    };
+    socketRef.current.emit('game:resign', payload);
+  }
+
+  function handleRematch() {
+    if (!socketRef.current || !lobby || !guestSession) return;
+    const payload: GameRematchSocketPayload = {
+      inviteCode: lobby.inviteCode,
+      guestId: guestSession.guestId,
+    };
+    socketRef.current.emit('game:rematch', payload);
+    setLobbyMessage('재대국을 요청했습니다. 상대방을 기다리는 중...');
   }
 
   function resetGame(
@@ -659,6 +718,24 @@ function App() {
             <strong>{gameState.lastMove ? formatMoveRecord(gameState.lastMove) : '없음'}</strong>
           </div>
         </div>
+
+        {isOnlineGame && displayTimers ? (
+          <div className="timer-row">
+            <div className={`timer-block${displayTimers.activeSide === 'red' && gameState.status === 'ongoing' ? ' timer-active' : ''}`}>
+              <span className="timer-label">초 (Red)</span>
+              <span className="timer-value">{formatMs(displayTimers.redMs)}</span>
+            </div>
+            <div className={`timer-block${displayTimers.activeSide === 'blue' && gameState.status === 'ongoing' ? ' timer-active' : ''}`}>
+              <span className="timer-label">한 (Blue)</span>
+              <span className="timer-value">{formatMs(displayTimers.blueMs)}</span>
+            </div>
+            {isOnlineGame && !isGameEnded ? (
+              <button className="resign-button" onClick={handleResign} type="button">
+                기권
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         {gameResultText ? <div className="result-banner">{gameResultText}</div> : null}
         {currentCheckText ? <div className="check-banner">{currentCheckText}</div> : null}
@@ -928,13 +1005,39 @@ function App() {
             <p className="eyebrow">Game Result</p>
             <h2>{gameResultText}</h2>
             <p className="helper-copy">
+              {gameState.endReason === 'resign'
+                ? '기권으로 대국이 종료되었습니다.'
+                : gameState.endReason === 'timeout'
+                  ? '시간 초과로 대국이 종료되었습니다.'
+                  : gameState.endReason === 'checkmate'
+                    ? '외통수로 대국이 종료되었습니다.'
+                    : gameState.endReason === 'general-captured'
+                      ? '장수 포획으로 대국이 종료되었습니다.'
+                      : null}
+            </p>
+            <p className="helper-copy">
               {gameState.lastMove
                 ? formatMoveRecord(gameState.lastMove)
                 : '마지막 수 기록이 없습니다.'}
             </p>
-            <button className="reset-button" onClick={() => resetGame()} type="button">
-              다시 시작
-            </button>
+            {isOnlineGame ? (
+              <>
+                {rematchRequestedBy && rematchRequestedBy !== guestSession?.guestId ? (
+                  <p className="helper-copy" style={{ color: '#5a8ddb', fontWeight: 600 }}>
+                    상대가 재대국을 요청했습니다!
+                  </p>
+                ) : rematchRequestedBy === guestSession?.guestId ? (
+                  <p className="helper-copy">상대의 수락을 기다리는 중...</p>
+                ) : null}
+                <button className="reset-button" onClick={handleRematch} type="button">
+                  재대국 요청
+                </button>
+              </>
+            ) : (
+              <button className="reset-button" onClick={() => resetGame()} type="button">
+                다시 시작
+              </button>
+            )}
           </div>
         </div>
       ) : null}

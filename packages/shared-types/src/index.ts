@@ -11,7 +11,7 @@ export type Side = 'red' | 'blue';
 
 export type GameStatus = 'ongoing' | 'ended';
 
-export type GameEndReason = 'checkmate' | 'general-captured' | null;
+export type GameEndReason = 'checkmate' | 'general-captured' | 'timeout' | 'resign' | null;
 
 export interface Position {
   x: number;
@@ -54,6 +54,13 @@ export interface GameState {
   endReason: GameEndReason;
   lastMove: MoveRecord | null;
   moveHistory: MoveRecord[];
+}
+
+export interface PlayerTimers {
+  redMs: number;
+  blueMs: number;
+  activeSide: Side;
+  turnStartedAt: number;
 }
 
 export interface GuestSession {
@@ -109,14 +116,30 @@ export interface LobbyUpdateSocketEvent {
 export interface GameStartSocketEvent {
   lobby: LobbyInfo;
   gameState: GameState;
+  timers: PlayerTimers;
 }
 
 export interface GameUpdateSocketEvent {
   lobby: LobbyInfo;
   gameState: GameState;
+  timers: PlayerTimers;
 }
 
 export interface GameErrorSocketEvent {
   code: string;
   message: string;
+}
+
+export interface GameTickSocketEvent {
+  timers: PlayerTimers;
+}
+
+export interface GameResignSocketPayload {
+  inviteCode: string;
+  guestId: string;
+}
+
+export interface GameRematchSocketPayload {
+  inviteCode: string;
+  guestId: string;
 }

@@ -1,6 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { applyMoveToGameState, createInitialGameState, getPieceAtPosition } from '@jangi/game-engine';
-import type { GameState, GuestSession, LobbyInfo, LobbyParticipant, Move, Side } from '@jangi/shared-types';
+import type { GameState, GuestSession, LobbyInfo, LobbyParticipant, Move, PlayerTimers, Side } from '@jangi/shared-types';
+
+const DEFAULT_PLAYER_MS = 10 * 60 * 1000; // 10 minutes per player
+
+interface TimerData {
+  redMs: number;
+  blueMs: number;
+  activeSide: Side;
+  turnStartedAt: number;
+}
+
+export type GameResult = { lobby: LobbyInfo; gameState: GameState; timers: PlayerTimers };
 
 @Injectable()
 export class LobbyService {
@@ -9,6 +20,10 @@ export class LobbyService {
   private readonly lobbies = new Map<string, LobbyInfo>();
 
   private readonly gameSessions = new Map<string, GameState>();
+
+  private readonly gameTimers = new Map<string, TimerData>();
+
+  private readonly rematchRequests = new Map<string, Set<string>>();
 
   createGuestSession(nickname?: string): GuestSession {
     const now = new Date().toISOString();
@@ -123,7 +138,7 @@ export class LobbyService {
     throw new Error('NOT_LOBBY_PARTICIPANT');
   }
 
-  ensureGameSession(inviteCode: string): GameState {
+  ensureGameSession(inviteCode: string): { gameState: GameState; timers: PlayerTimers } {
     const normalizedCode = inviteCode.toUpperCase();
     const lobby = this.getLobbyByInviteCode(normalizedCode);
 
@@ -141,10 +156,14 @@ export class LobbyService {
       this.gameSessions.set(normalizedCode, gameState);
     }
 
-    return gameState;
+    if (!this.gameTimers.has(normalizedCode)) {
+      this.initTimerInternal(normalizedCode, gameState.currentTurn);
+    }
+
+    return { gameState, timers: this.computeCurrentTimers(normalizedCode) };
   }
 
-  applyMove(inviteCode: string, guestId: string, move: Move) {
+  applyMove(inviteCode: string, guestId: string, move: Move): GameResult {
     const normalizedCode = inviteCode.toUpperCase();
     const lobby = this.getLobbyByInviteCode(normalizedCode);
     if (!lobby) {
@@ -152,7 +171,7 @@ export class LobbyService {
     }
 
     const side = this.getParticipantSide(normalizedCode, guestId);
-    const currentGameState = this.ensureGameSession(normalizedCode);
+    const { gameState: currentGameState } = this.ensureGameSession(normalizedCode);
 
     if (currentGameState.status === 'ended') {
       throw new Error('GAME_ALREADY_ENDED');
@@ -173,11 +192,122 @@ export class LobbyService {
     }
 
     this.gameSessions.set(normalizedCode, nextGameState);
+    this.consumeAndSwitchTimer(normalizedCode, side);
 
     return {
       lobby,
       gameState: nextGameState,
+      timers: this.computeCurrentTimers(normalizedCode),
     };
+  }
+
+  resignGame(inviteCode: string, guestId: string): GameResult {
+    const normalizedCode = inviteCode.toUpperCase();
+    const lobby = this.getLobbyByInviteCode(normalizedCode);
+    if (!lobby) throw new Error('LOBBY_NOT_FOUND');
+
+    const side = this.getParticipantSide(normalizedCode, guestId);
+    const gameState = this.gameSessions.get(normalizedCode);
+    if (!gameState) throw new Error('GAME_NOT_STARTED');
+    if (gameState.status === 'ended') throw new Error('GAME_ALREADY_ENDED');
+
+    const winningSide: Side = side === 'red' ? 'blue' : 'red';
+    const endedState: GameState = { ...gameState, status: 'ended', winner: winningSide, endReason: 'resign' };
+    this.gameSessions.set(normalizedCode, endedState);
+
+    const timers = this.gameTimers.has(normalizedCode)
+      ? this.computeCurrentTimers(normalizedCode)
+      : { redMs: 0, blueMs: 0, activeSide: side, turnStartedAt: Date.now() };
+
+    return { lobby, gameState: endedState, timers };
+  }
+
+  checkAndHandleTimeout(inviteCode: string): GameResult | null {
+    const normalizedCode = inviteCode.toUpperCase();
+    const timer = this.gameTimers.get(normalizedCode);
+    if (!timer) return null;
+
+    const gameState = this.gameSessions.get(normalizedCode);
+    if (!gameState || gameState.status === 'ended') return null;
+
+    const elapsed = Date.now() - timer.turnStartedAt;
+    const remainingMs = timer.activeSide === 'red'
+      ? timer.redMs - elapsed
+      : timer.blueMs - elapsed;
+
+    if (remainingMs > 0) return null;
+
+    const losingSide = timer.activeSide;
+    const winningSide: Side = losingSide === 'red' ? 'blue' : 'red';
+
+    if (losingSide === 'red') timer.redMs = 0;
+    else timer.blueMs = 0;
+
+    const endedState: GameState = { ...gameState, status: 'ended', winner: winningSide, endReason: 'timeout' };
+    this.gameSessions.set(normalizedCode, endedState);
+
+    const lobby = this.getLobbyByInviteCode(normalizedCode)!;
+    return { lobby, gameState: endedState, timers: { ...timer } };
+  }
+
+  requestRematch(inviteCode: string, guestId: string): { started: false } | ({ started: true } & GameResult) {
+    const normalizedCode = inviteCode.toUpperCase();
+    if (!this.isLobbyParticipant(normalizedCode, guestId)) {
+      throw new Error('NOT_LOBBY_PARTICIPANT');
+    }
+
+    let requests = this.rematchRequests.get(normalizedCode);
+    if (!requests) {
+      requests = new Set();
+      this.rematchRequests.set(normalizedCode, requests);
+    }
+    requests.add(guestId);
+
+    const lobby = this.getLobbyByInviteCode(normalizedCode)!;
+    const hostRequested = requests.has(lobby.host.guestId);
+    const guestRequested = Boolean(lobby.guest && requests.has(lobby.guest.guestId));
+
+    if (!hostRequested || !guestRequested) {
+      return { started: false };
+    }
+
+    this.rematchRequests.delete(normalizedCode);
+    const gameState = createInitialGameState();
+    this.gameSessions.set(normalizedCode, gameState);
+    this.initTimerInternal(normalizedCode, gameState.currentTurn);
+
+    return { started: true, lobby, gameState, timers: this.computeCurrentTimers(normalizedCode) };
+  }
+
+  computeCurrentTimers(inviteCode: string): PlayerTimers {
+    const timer = this.gameTimers.get(inviteCode.toUpperCase());
+    if (!timer) throw new Error('TIMER_NOT_FOUND');
+    const elapsed = Date.now() - timer.turnStartedAt;
+    return {
+      redMs: timer.activeSide === 'red' ? Math.max(0, timer.redMs - elapsed) : timer.redMs,
+      blueMs: timer.activeSide === 'blue' ? Math.max(0, timer.blueMs - elapsed) : timer.blueMs,
+      activeSide: timer.activeSide,
+      turnStartedAt: timer.turnStartedAt,
+    };
+  }
+
+  private initTimerInternal(inviteCode: string, initialSide: Side) {
+    this.gameTimers.set(inviteCode, {
+      redMs: DEFAULT_PLAYER_MS,
+      blueMs: DEFAULT_PLAYER_MS,
+      activeSide: initialSide,
+      turnStartedAt: Date.now(),
+    });
+  }
+
+  private consumeAndSwitchTimer(inviteCode: string, movingSide: Side) {
+    const timer = this.gameTimers.get(inviteCode);
+    if (!timer) return;
+    const elapsed = Date.now() - timer.turnStartedAt;
+    if (movingSide === 'red') timer.redMs = Math.max(0, timer.redMs - elapsed);
+    else timer.blueMs = Math.max(0, timer.blueMs - elapsed);
+    timer.activeSide = movingSide === 'red' ? 'blue' : 'red';
+    timer.turnStartedAt = Date.now();
   }
 
   private normalizeNickname(nickname?: string) {
