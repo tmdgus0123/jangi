@@ -11,6 +11,9 @@
     "test": "pnpm -r test",
     "format": "prettier --write ."
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@nestjs/core", "esbuild"]
+  },
   "devDependencies": {
     "@eslint/js": "^9.25.1",
     "@types/node": "^22.14.1",

@@ -55,3 +55,68 @@ export interface GameState {
   lastMove: MoveRecord | null;
   moveHistory: MoveRecord[];
 }
+
+export interface GuestSession {
+  guestId: string;
+  nickname: string;
+  createdAt: string;
+}
+
+export interface CreateGuestSessionRequest {
+  nickname?: string;
+}
+
+export interface LobbyParticipant {
+  guestId: string;
+  nickname: string;
+  joinedAt: string;
+}
+
+export interface LobbyInfo {
+  inviteCode: string;
+  createdAt: string;
+  host: LobbyParticipant;
+  hostSide: Side;
+  guest: LobbyParticipant | null;
+  guestSide: Side;
+  status: 'waiting' | 'ready';
+}
+
+export interface CreateLobbyRequest {
+  hostGuestId: string;
+}
+
+export interface JoinLobbyByInviteCodeRequest {
+  inviteCode: string;
+  guestId: string;
+}
+
+export interface LobbyJoinSocketPayload {
+  inviteCode: string;
+  guestId: string;
+}
+
+export interface GameMoveSocketPayload {
+  inviteCode: string;
+  guestId: string;
+  move: Move;
+}
+
+export interface LobbyUpdateSocketEvent {
+  lobby: LobbyInfo;
+}
+
+export interface GameStartSocketEvent {
+  lobby: LobbyInfo;
+  gameState: GameState;
+}
+
+export interface GameUpdateSocketEvent {
+  lobby: LobbyInfo;
+  gameState: GameState;
+}
+
+export interface GameErrorSocketEvent {
+  code: string;
+  message: string;
+}

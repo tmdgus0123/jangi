@@ -1,5 +1,24 @@
-import { useState } from 'react';
-import type { GameState, MoveRecord, Piece, PieceKind, Position, Side } from '@jangi/shared-types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  CreateGuestSessionRequest,
+  CreateLobbyRequest,
+  GameErrorSocketEvent,
+  GameMoveSocketPayload,
+  GameStartSocketEvent,
+  GameUpdateSocketEvent,
+  GameState,
+  GuestSession,
+  JoinLobbyByInviteCodeRequest,
+  LobbyJoinSocketPayload,
+  LobbyInfo,
+  LobbyUpdateSocketEvent,
+  MoveRecord,
+  Piece,
+  PieceKind,
+  Position,
+  Side,
+} from '@jangi/shared-types';
+import { io, type Socket } from 'socket.io-client';
 import {
   applyMoveToGameState,
   type BackRankLayout,
@@ -30,6 +49,9 @@ const backRankLayoutLabels: Record<BackRankLayout, string> = {
 
 const fileLabels = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 const rankLabels = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+const serverBaseUrl =
+  (import.meta.env.VITE_SERVER_URL as string | undefined)?.replace(/\/$/, '') ||
+  'http://127.0.0.1:4000';
 
 function sideLabel(side: Side) {
   return side === 'red' ? '초' : '한';
@@ -110,11 +132,11 @@ function getPieceImageSrc(kind: PieceKind, side: Side) {
 }
 
 function getPieceSizeClass(kind: PieceKind) {
-  if (kind === 'general' || kind === 'chariot') {
+  if (kind === 'general') {
     return 'piece-large';
   }
 
-  if (kind === 'horse' || kind === 'elephant' || kind === 'cannon') {
+  if (kind === 'horse' || kind === 'elephant' || kind === 'cannon' || kind === 'chariot') {
     return 'piece-medium';
   }
 
@@ -248,6 +270,94 @@ function App() {
     })
   );
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
+  const [guestNickname, setGuestNickname] = useState('');
+  const [inviteCodeInput, setInviteCodeInput] = useState('');
+  const [guestSession, setGuestSession] = useState<GuestSession | null>(null);
+  const [lobby, setLobby] = useState<LobbyInfo | null>(null);
+  const [lobbyMessage, setLobbyMessage] = useState('');
+  const [isLobbySubmitting, setIsLobbySubmitting] = useState(false);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  const socketRef = useRef<Socket | null>(null);
+
+  const activeInviteCode = lobby?.inviteCode ?? null;
+  const lobbyStatus = lobby?.status ?? null;
+
+  const mySide = useMemo<Side | null>(() => {
+    if (!lobby || !guestSession) {
+      return null;
+    }
+
+    if (lobby.host.guestId === guestSession.guestId) {
+      return lobby.hostSide;
+    }
+
+    if (lobby.guest?.guestId === guestSession.guestId) {
+      return lobby.guestSide;
+    }
+
+    return null;
+  }, [guestSession, lobby]);
+
+  const isOnlineGame = Boolean(lobby && lobby.status === 'ready' && mySide);
+
+  useEffect(() => {
+    if (!guestSession || !activeInviteCode) {
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+      setIsRealtimeConnected(false);
+      return;
+    }
+
+    const socket = io(`${serverBaseUrl}/play`, {
+      transports: ['websocket'],
+    });
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      setIsRealtimeConnected(true);
+      const payload: LobbyJoinSocketPayload = {
+        inviteCode: activeInviteCode,
+        guestId: guestSession.guestId,
+      };
+      socket.emit('lobby:join', payload);
+    });
+
+    socket.on('disconnect', () => {
+      setIsRealtimeConnected(false);
+    });
+
+    socket.on('lobby:update', (event: LobbyUpdateSocketEvent) => {
+      setLobby(event.lobby);
+    });
+
+    socket.on('game:start', (event: GameStartSocketEvent) => {
+      setLobby(event.lobby);
+      setGameState(event.gameState);
+      setSelectedPosition(null);
+      setLobbyMessage('양쪽 플레이어가 준비되어 대국이 시작되었습니다.');
+    });
+
+    socket.on('game:update', (event: GameUpdateSocketEvent) => {
+      setLobby(event.lobby);
+      setGameState(event.gameState);
+      setSelectedPosition(null);
+      if (event.gameState.status === 'ended') {
+        setLobbyMessage('대국이 종료되었습니다.');
+      }
+    });
+
+    socket.on('game:error', (event: GameErrorSocketEvent) => {
+      setLobbyMessage(event.message);
+    });
+
+    return () => {
+      socket.disconnect();
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+      }
+      setIsRealtimeConnected(false);
+    };
+  }, [activeInviteCode, guestSession, lobbyStatus]);
 
   const boardCells = Array.from(
     { length: boardDimensions.width * boardDimensions.height },
@@ -267,7 +377,9 @@ function App() {
     ? getPieceAtPosition(gameState.board, selectedPosition.x, selectedPosition.y)
     : null;
   const legalMoves =
-    selectedPiece && selectedPiece.side === gameState.currentTurn
+    selectedPiece &&
+    selectedPiece.side === gameState.currentTurn &&
+    (!isOnlineGame || selectedPiece.side === mySide)
       ? getLegalMoves(gameState.board, selectedPiece)
       : [];
   const legalMoveMap = new Map(legalMoves.map((move) => [`${move.to.x}-${move.to.y}`, move]));
@@ -294,16 +406,40 @@ function App() {
       return;
     }
 
+    if (isOnlineGame && mySide !== gameState.currentTurn) {
+      setSelectedPosition(null);
+      setLobbyMessage('상대 턴입니다. 내 차례에만 움직일 수 있습니다.');
+      return;
+    }
+
     const clickedPiece = getPieceAtPosition(gameState.board, x, y);
     const selectedMove = legalMoveMap.get(`${x}-${y}`);
 
     if (selectedPiece && selectedMove) {
-      setGameState((currentGameState) => applyMoveToGameState(currentGameState, selectedMove));
+      if (isOnlineGame && lobby && guestSession && socketRef.current) {
+        const payload: GameMoveSocketPayload = {
+          inviteCode: lobby.inviteCode,
+          guestId: guestSession.guestId,
+          move: selectedMove,
+        };
+        socketRef.current.emit('game:move', payload);
+      } else {
+        setGameState((currentGameState) => applyMoveToGameState(currentGameState, selectedMove));
+      }
       setSelectedPosition(null);
+      if (isOnlineGame) {
+        setLobbyMessage('수를 두었습니다. 상대 차례를 기다려주세요.');
+      }
       return;
     }
 
     if (clickedPiece && clickedPiece.side === gameState.currentTurn) {
+      if (isOnlineGame && clickedPiece.side !== mySide) {
+        setSelectedPosition(null);
+        setLobbyMessage('상대 기물은 움직일 수 없습니다.');
+        return;
+      }
+
       if (isSamePosition(selectedPosition, { x, y })) {
         setSelectedPosition(null);
         return;
@@ -348,6 +484,151 @@ function App() {
     setSelectedPosition(null);
   }
 
+  async function createGuestSession() {
+    setIsLobbySubmitting(true);
+    setLobbyMessage('게스트 세션을 생성하는 중입니다...');
+
+    try {
+      const payload: CreateGuestSessionRequest = {
+        nickname: guestNickname,
+      };
+      const response = await fetch(`${serverBaseUrl}/v1/guest/sessions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`게스트 세션 생성 실패 (${response.status})`);
+      }
+
+      const createdGuest = (await response.json()) as GuestSession;
+      setGuestSession(createdGuest);
+      setLobbyMessage(`${createdGuest.nickname} 세션이 준비되었습니다.`);
+    } catch (error) {
+      setLobbyMessage(
+        error instanceof Error ? error.message : '게스트 세션 생성 중 오류가 발생했습니다.'
+      );
+    } finally {
+      setIsLobbySubmitting(false);
+    }
+  }
+
+  async function createInviteLobby() {
+    if (!guestSession) {
+      setLobbyMessage('먼저 게스트 세션을 생성해주세요.');
+      return;
+    }
+
+    setIsLobbySubmitting(true);
+    setLobbyMessage('초대 코드를 생성하는 중입니다...');
+
+    try {
+      const payload: CreateLobbyRequest = {
+        hostGuestId: guestSession.guestId,
+      };
+      const response = await fetch(`${serverBaseUrl}/v1/lobbies`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`방 생성 실패 (${response.status})`);
+      }
+
+      const createdLobby = (await response.json()) as LobbyInfo;
+      setLobby(createdLobby);
+      setInviteCodeInput(createdLobby.inviteCode);
+      setLobbyMessage(`초대 코드 ${createdLobby.inviteCode} 가 생성되었습니다.`);
+    } catch (error) {
+      setLobbyMessage(error instanceof Error ? error.message : '방 생성 중 오류가 발생했습니다.');
+    } finally {
+      setIsLobbySubmitting(false);
+    }
+  }
+
+  async function joinInviteLobby() {
+    if (!guestSession) {
+      setLobbyMessage('먼저 게스트 세션을 생성해주세요.');
+      return;
+    }
+
+    if (!inviteCodeInput.trim()) {
+      setLobbyMessage('입장할 초대 코드를 입력해주세요.');
+      return;
+    }
+
+    setIsLobbySubmitting(true);
+    setLobbyMessage('초대 코드로 입장 중입니다...');
+
+    try {
+      const payload: JoinLobbyByInviteCodeRequest = {
+        inviteCode: inviteCodeInput.trim().toUpperCase(),
+        guestId: guestSession.guestId,
+      };
+      const response = await fetch(`${serverBaseUrl}/v1/lobbies/join`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`입장 실패 (${response.status})`);
+      }
+
+      const joinedLobby = (await response.json()) as LobbyInfo;
+      setLobby(joinedLobby);
+      setInviteCodeInput(joinedLobby.inviteCode);
+      if (joinedLobby.status === 'ready') {
+        setLobbyMessage('2인 입장이 완료되었습니다. 실시간 대국을 연결합니다.');
+      } else {
+        setLobbyMessage('방 입장이 완료되었습니다.');
+      }
+    } catch (error) {
+      setLobbyMessage(error instanceof Error ? error.message : '방 입장 중 오류가 발생했습니다.');
+    } finally {
+      setIsLobbySubmitting(false);
+    }
+  }
+
+  async function refreshLobby() {
+    if (!inviteCodeInput.trim()) {
+      setLobbyMessage('조회할 초대 코드를 입력해주세요.');
+      return;
+    }
+
+    setIsLobbySubmitting(true);
+    setLobbyMessage('로비 상태를 확인하는 중입니다...');
+
+    try {
+      const normalizedCode = inviteCodeInput.trim().toUpperCase();
+      const response = await fetch(`${serverBaseUrl}/v1/lobbies/${normalizedCode}`);
+
+      if (!response.ok) {
+        throw new Error(`로비 조회 실패 (${response.status})`);
+      }
+
+      const latestLobby = (await response.json()) as LobbyInfo;
+      setLobby(latestLobby);
+      setLobbyMessage(
+        latestLobby.status === 'ready'
+          ? '참가자 2명이 모두 입장했습니다. 실시간 대국 연결을 진행합니다.'
+          : '상대 입장을 기다리는 중입니다.'
+      );
+    } catch (error) {
+      setLobbyMessage(error instanceof Error ? error.message : '로비 조회 중 오류가 발생했습니다.');
+    } finally {
+      setIsLobbySubmitting(false);
+    }
+  }
+
   return (
     <main className="app-shell">
       <section className="hero-panel">
@@ -383,6 +664,87 @@ function App() {
         {currentCheckText ? <div className="check-banner">{currentCheckText}</div> : null}
 
         <div className="action-row">
+          <div className="lobby-panel" role="group" aria-label="friend-invite-lobby">
+            <span className="status-label lobby-title">온라인 대전(친구 초대 코드)</span>
+            <div className="lobby-field-row">
+              <label className="lobby-label" htmlFor="guest-nickname-input">
+                닉네임
+              </label>
+              <input
+                className="lobby-input"
+                id="guest-nickname-input"
+                onChange={(event) => setGuestNickname(event.target.value)}
+                placeholder="게스트 닉네임"
+                type="text"
+                value={guestNickname}
+              />
+              <button
+                className="demo-button"
+                disabled={isLobbySubmitting}
+                onClick={createGuestSession}
+                type="button"
+              >
+                게스트 시작
+              </button>
+            </div>
+            <div className="lobby-field-row">
+              <label className="lobby-label" htmlFor="invite-code-input">
+                초대코드
+              </label>
+              <input
+                className="lobby-input lobby-code-input"
+                id="invite-code-input"
+                onChange={(event) => setInviteCodeInput(event.target.value.toUpperCase())}
+                placeholder="예: A2BC9D"
+                type="text"
+                value={inviteCodeInput}
+              />
+              <button
+                className="demo-button"
+                disabled={isLobbySubmitting || !guestSession}
+                onClick={createInviteLobby}
+                type="button"
+              >
+                방 생성
+              </button>
+              <button
+                className="demo-button"
+                disabled={isLobbySubmitting || !guestSession}
+                onClick={joinInviteLobby}
+                type="button"
+              >
+                방 입장
+              </button>
+              <button
+                className="demo-button"
+                disabled={isLobbySubmitting}
+                onClick={refreshLobby}
+                type="button"
+              >
+                상태 조회
+              </button>
+            </div>
+            <p className="helper-copy lobby-copy">
+              세션: {guestSession ? `${guestSession.nickname} (${guestSession.guestId})` : '없음'}
+            </p>
+            <p className="helper-copy lobby-copy">
+              로비:{' '}
+              {lobby
+                ? `${lobby.inviteCode} · ${lobby.status === 'ready' ? '입장 완료' : '대기 중'}`
+                : '없음'}
+            </p>
+            {isOnlineGame ? (
+              <p className="helper-copy lobby-copy">
+                내 진영: {mySide ? sideLabel(mySide) : '미확정'}
+              </p>
+            ) : null}
+            {isOnlineGame ? (
+              <p className="helper-copy lobby-copy">
+                실시간 연결: {isRealtimeConnected ? '연결됨' : '연결 중'}
+              </p>
+            ) : null}
+            {lobbyMessage ? <p className="helper-copy lobby-copy">{lobbyMessage}</p> : null}
+          </div>
           <div className="layout-row" role="group" aria-label="opening-layout">
             <span className="status-label layout-title">기물 배치</span>
             <div className="layout-side-group">

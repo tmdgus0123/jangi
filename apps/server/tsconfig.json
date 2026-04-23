@@ -7,7 +7,11 @@
     "emitDecoratorMetadata": true,
     "noEmit": false,
     "rootDir": "../../",
-    "outDir": "dist"
+    "outDir": "dist",
+    "paths": {
+      "@jangi/shared-types": ["../../packages/shared-types/src/index.ts"],
+      "@jangi/game-engine": ["../../packages/game-engine/src/index.ts"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "../../packages/shared-types/src", "../../packages/game-engine/src"]
 }
