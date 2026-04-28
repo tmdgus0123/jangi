@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { applyMoveToGameState, createInitialGameState, getPieceAtPosition } from '@jangi/game-engine';
-import type { GameState, GuestSession, LobbyInfo, LobbyParticipant, Move, PlayerTimers, Side } from '@jangi/shared-types';
+import type { BackRankLayout, GameState, GuestSession, LobbyInfo, LobbyParticipant, Move, PlayerTimers, Side } from '@jangi/shared-types';
 
 const DEFAULT_PLAYER_MS = 10 * 60 * 1000; // 10 minutes per player
 
@@ -24,6 +24,8 @@ export class LobbyService {
   private readonly gameTimers = new Map<string, TimerData>();
 
   private readonly rematchRequests = new Map<string, Set<string>>();
+
+  private readonly readyLayouts = new Map<string, Map<string, BackRankLayout>>();
 
   createGuestSession(nickname?: string): GuestSession {
     const now = new Date().toISOString();
@@ -101,10 +103,6 @@ export class LobbyService {
 
     this.lobbies.set(nextLobby.inviteCode, nextLobby);
 
-    if (nextLobby.status === 'ready' && !this.gameSessions.has(nextLobby.inviteCode)) {
-      this.gameSessions.set(nextLobby.inviteCode, createInitialGameState());
-    }
-
     return nextLobby;
   }
 
@@ -136,6 +134,45 @@ export class LobbyService {
     }
 
     throw new Error('NOT_LOBBY_PARTICIPANT');
+  }
+
+  getGameSession(inviteCode: string): GameState | null {
+    return this.gameSessions.get(inviteCode.toUpperCase()) ?? null;
+  }
+
+  submitReady(inviteCode: string, guestId: string, layout: BackRankLayout): GameResult | null {
+    const normalizedCode = inviteCode.toUpperCase();
+    if (!this.isLobbyParticipant(normalizedCode, guestId)) {
+      throw new Error('NOT_LOBBY_PARTICIPANT');
+    }
+    const lobby = this.getLobbyByInviteCode(normalizedCode);
+    if (!lobby) throw new Error('LOBBY_NOT_FOUND');
+    if (lobby.status !== 'ready') throw new Error('GAME_NOT_READY');
+
+    let layouts = this.readyLayouts.get(normalizedCode);
+    if (!layouts) {
+      layouts = new Map();
+      this.readyLayouts.set(normalizedCode, layouts);
+    }
+    layouts.set(guestId, layout);
+
+    const hostReady = layouts.has(lobby.host.guestId);
+    const guestReady = Boolean(lobby.guest && layouts.has(lobby.guest.guestId));
+    if (!hostReady || !guestReady) return null;
+
+    // Both players chose layout — create game
+    const hostLayout = layouts.get(lobby.host.guestId)!;
+    const guestLayout = layouts.get(lobby.guest!.guestId)!;
+    // host = red (초), guest = blue (한)
+    const gameState = createInitialGameState({
+      redBackRankLayout: hostLayout,
+      blueBackRankLayout: guestLayout,
+    });
+    this.gameSessions.set(normalizedCode, gameState);
+    this.initTimerInternal(normalizedCode, gameState.currentTurn);
+    this.readyLayouts.delete(normalizedCode);
+
+    return { lobby, gameState, timers: this.computeCurrentTimers(normalizedCode) };
   }
 
   ensureGameSession(inviteCode: string): { gameState: GameState; timers: PlayerTimers } {
@@ -250,7 +287,7 @@ export class LobbyService {
     return { lobby, gameState: endedState, timers: { ...timer } };
   }
 
-  requestRematch(inviteCode: string, guestId: string): { started: false } | ({ started: true } & GameResult) {
+  requestRematch(inviteCode: string, guestId: string): { started: false } | { started: true } {
     const normalizedCode = inviteCode.toUpperCase();
     if (!this.isLobbyParticipant(normalizedCode, guestId)) {
       throw new Error('NOT_LOBBY_PARTICIPANT');
@@ -272,11 +309,48 @@ export class LobbyService {
     }
 
     this.rematchRequests.delete(normalizedCode);
-    const gameState = createInitialGameState();
-    this.gameSessions.set(normalizedCode, gameState);
-    this.initTimerInternal(normalizedCode, gameState.currentTurn);
+    this.readyLayouts.delete(normalizedCode);
+    this.gameSessions.delete(normalizedCode);
+    this.stopTimerInternal(normalizedCode);
 
-    return { started: true, lobby, gameState, timers: this.computeCurrentTimers(normalizedCode) };
+    return { started: true };
+  }
+
+  rejectRematch(inviteCode: string, guestId: string): void {
+    const normalizedCode = inviteCode.toUpperCase();
+    if (!this.isLobbyParticipant(normalizedCode, guestId)) {
+      throw new Error('NOT_LOBBY_PARTICIPANT');
+    }
+    const requests = this.rematchRequests.get(normalizedCode);
+    if (requests) {
+      requests.delete(guestId);
+      if (requests.size === 0) {
+        this.rematchRequests.delete(normalizedCode);
+      }
+    }
+  }
+
+  disconnectClient(inviteCode: string, guestId: string): GameResult | null {
+    const normalizedCode = inviteCode.toUpperCase();
+    const gameState = this.gameSessions.get(normalizedCode);
+    if (!gameState || gameState.status === 'ended') {
+      return null;
+    }
+    // Game in progress - opponent wins
+    const opponent = gameState.currentTurn === 'red' ? 'blue' : 'red';
+    const endedGameState: GameState = {
+      ...gameState,
+      status: 'ended',
+      winner: opponent,
+      endReason: 'timeout',
+    };
+    this.gameSessions.set(normalizedCode, endedGameState);
+    this.stopTimerInternal(normalizedCode);
+    return {
+      lobby: this.getLobbyByInviteCode(normalizedCode)!,
+      gameState: endedGameState,
+      timers: this.computeCurrentTimers(normalizedCode),
+    };
   }
 
   computeCurrentTimers(inviteCode: string): PlayerTimers {
@@ -298,6 +372,10 @@ export class LobbyService {
       activeSide: initialSide,
       turnStartedAt: Date.now(),
     });
+  }
+
+  private stopTimerInternal(inviteCode: string) {
+    this.gameTimers.delete(inviteCode);
   }
 
   private consumeAndSwitchTimer(inviteCode: string, movingSide: Side) {

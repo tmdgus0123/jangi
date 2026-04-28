@@ -1,4 +1,5 @@
-import type { Board, GameState, Piece, PieceKind, Side } from '@jangi/shared-types';
+import type { BackRankLayout, Board, GameState, Piece, PieceKind, Side } from '@jangi/shared-types';
+export type { BackRankLayout };
 
 const BOARD_WIDTH = 9;
 const BOARD_HEIGHT = 10;
@@ -24,12 +25,6 @@ function createPiece(id: string, kind: PieceKind, side: Side, x: number, y: numb
 function placePiece(board: Board, piece: Piece) {
   board[toBoardIndex(piece.position.x, piece.position.y)] = piece;
 }
-
-export type BackRankLayout =
-  | 'elephant-horse-elephant-horse'
-  | 'horse-elephant-horse-elephant'
-  | 'elephant-horse-horse-elephant'
-  | 'horse-elephant-elephant-horse';
 
 function getMinorKindsByLayout(
   backRankLayout: BackRankLayout

@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  ChatMessage,
   CreateGuestSessionRequest,
   CreateLobbyRequest,
+  GameChatSocketEvent,
+  GameChatSocketPayload,
   GameErrorSocketEvent,
+  GameLayoutSelectSocketEvent,
   GameMoveSocketPayload,
+  GameOpponentReadySocketEvent,
+  GameReadySocketPayload,
+  GameRematchRejectSocketPayload,
   GameRematchSocketPayload,
   GameResignSocketPayload,
   GameStartSocketEvent,
@@ -291,7 +298,43 @@ function App() {
   const [timers, setTimers] = useState<PlayerTimers | null>(null);
   const [displayTimers, setDisplayTimers] = useState<PlayerTimers | null>(null);
   const [rematchRequestedBy, setRematchRequestedBy] = useState<string | null>(null);
+  const [showLayoutPopup, setShowLayoutPopup] = useState(false);
+  const [pendingLayoutSubmit, setPendingLayoutSubmit] = useState(false);
+  const [popupLayout, setPopupLayout] = useState<BackRankLayout>('elephant-horse-horse-elephant');
+  const [showKebabMenu, setShowKebabMenu] = useState(false);
+  const [opponentLayout, setOpponentLayout] = useState<BackRankLayout | null>(null);
+  const [isResultOverlayClosed, setIsResultOverlayClosed] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
   const socketRef = useRef<Socket | null>(null);
+  const kebabRef = useRef<HTMLDivElement>(null);
+  const pendingLayoutSubmitRef = useRef(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Close kebab menu on outside click
+  useEffect(() => {
+    if (!showKebabMenu) return;
+    function onMouseDown(e: MouseEvent) {
+      if (kebabRef.current && !kebabRef.current.contains(e.target as Node)) {
+        setShowKebabMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [showKebabMenu]);
+
+  // Scroll chat to bottom when new message arrives
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages]);
+
+  useEffect(() => {
+    if (gameState.status !== 'ended') {
+      setIsResultOverlayClosed(false);
+    }
+  }, [gameState.status]);
 
   const activeInviteCode = lobby?.inviteCode ?? null;
   const lobbyStatus = lobby?.status ?? null;
@@ -344,6 +387,24 @@ function App() {
       setLobby(event.lobby);
     });
 
+    socket.on('game:layout-select', (_event: GameLayoutSelectSocketEvent) => {
+      if (!pendingLayoutSubmitRef.current) {
+        setShowLayoutPopup(true);
+        setPendingLayoutSubmit(false);
+        setOpponentLayout(null);
+        setRematchRequestedBy(null);
+      }
+    });
+
+    socket.on('game:opponent-ready', (event: GameOpponentReadySocketEvent) => {
+      setOpponentLayout(event.opponentLayout);
+      if (!pendingLayoutSubmitRef.current) {
+        setShowLayoutPopup(true);
+        setPendingLayoutSubmit(false);
+        setLobbyMessage(`상대방이 ${event.opponentSide === 'red' ? '초' : '한'} 진영으로 선택했습니다.`);
+      }
+    });
+
     socket.on('game:start', (event: GameStartSocketEvent) => {
       setLobby(event.lobby);
       setGameState(event.gameState);
@@ -351,7 +412,11 @@ function App() {
       setTimers(event.timers);
       setDisplayTimers(event.timers);
       setRematchRequestedBy(null);
-      setLobbyMessage('양쪽 플레이어가 준비되어 대국이 시작되었습니다.');
+      setShowLayoutPopup(false);
+      setOpponentLayout(null);
+      pendingLayoutSubmitRef.current = false;
+      setPendingLayoutSubmit(false);
+      setLobbyMessage('');
     });
 
     socket.on('game:update', (event: GameUpdateSocketEvent) => {
@@ -371,6 +436,16 @@ function App() {
 
     socket.on('game:rematch-requested', (event: { guestId: string }) => {
       setRematchRequestedBy(event.guestId);
+      setIsResultOverlayClosed(false);
+    });
+
+    socket.on('game:rematch-rejected', (event: { guestId: string }) => {
+      setRematchRequestedBy(null);
+      setLobbyMessage('상대방이 재대국을 거절했습니다.');
+    });
+
+    socket.on('game:chat', (event: GameChatSocketEvent) => {
+      setChatMessages((prev) => [...prev, event.message]);
     });
 
     return () => {
@@ -381,6 +456,12 @@ function App() {
       setIsRealtimeConnected(false);
       setTimers(null);
       setDisplayTimers(null);
+      setShowLayoutPopup(false);
+      setOpponentLayout(null);
+      pendingLayoutSubmitRef.current = false;
+      setPendingLayoutSubmit(false);
+      setChatMessages([]);
+      setChatInput('');
     };
   }, [activeInviteCode, guestSession, lobbyStatus]);
 
@@ -491,6 +572,30 @@ function App() {
     setSelectedPosition(null);
   }
 
+  function confirmOnlineLayout() {
+    if (!socketRef.current || !lobby || !guestSession) return;
+    const payload: GameReadySocketPayload = {
+      inviteCode: lobby.inviteCode,
+      guestId: guestSession.guestId,
+      layout: popupLayout,
+    };
+    socketRef.current.emit('game:ready', payload);
+    pendingLayoutSubmitRef.current = true;
+    setPendingLayoutSubmit(true);
+    setLobbyMessage('배치를 선택했습니다. 상대방을 기다리는 중...');
+  }
+
+  function confirmOfflineLayout() {
+    resetGame(blueBackRankLayout, redBackRankLayout);
+    setShowLayoutPopup(false);
+  }
+
+  function openResetPopup() {
+    setShowLayoutPopup(true);
+    setPendingLayoutSubmit(false);
+    setShowKebabMenu(false);
+  }
+
   function handleResign() {
     if (!socketRef.current || !lobby || !guestSession) return;
     if (!window.confirm('기권하시겠습니까? 상대방이 승리합니다.')) return;
@@ -509,6 +614,18 @@ function App() {
     };
     socketRef.current.emit('game:rematch', payload);
     setLobbyMessage('재대국을 요청했습니다. 상대방을 기다리는 중...');
+  }
+
+  function handleRejectRematch() {
+    if (!socketRef.current || !lobby || !guestSession) return;
+    const payload: GameRematchRejectSocketPayload = {
+      inviteCode: lobby.inviteCode,
+      guestId: guestSession.guestId,
+    };
+    socketRef.current.emit('game:rematch-reject', payload);
+    setRematchRequestedBy(null);
+    setLobbyMessage('재대국 요청을 거절했습니다.');
+    setIsResultOverlayClosed(true);
   }
 
   function resetGame(
@@ -531,6 +648,17 @@ function App() {
     setBlueBackRankLayout(nextBlueLayout);
     setRedBackRankLayout(nextRedLayout);
     resetGame(nextBlueLayout, nextRedLayout);
+  }
+
+  function handleSendChat() {
+    if (!chatInput.trim() || !guestSession || !lobby) return;
+    const payload: GameChatSocketPayload = {
+      inviteCode: lobby.inviteCode,
+      guestId: guestSession.guestId,
+      text: chatInput.trim(),
+    };
+    socketRef.current?.emit('game:chat', payload);
+    setChatInput('');
   }
 
   function loadCheckmateDemo() {
@@ -691,45 +819,155 @@ function App() {
   return (
     <main className="app-shell">
       <section className="hero-panel">
-        <p className="eyebrow">Korean Chess</p>
-        <h1>Jangi</h1>
-        <p className="description">
-          규칙 엔진으로 생성한 초기 대국 상태를 실제 장기판 형태로 렌더링하고, 현재 턴 기준의 말
-          선택, 이동 하이라이트, 수 적용 인터랙션까지 연결했습니다.
-        </p>
+        {/* Header with title + kebab menu */}
+        <header className="hero-header">
+          <div>
+            <p className="eyebrow">Korean Chess</p>
+            <h1>Jangi</h1>
+          </div>
+          <div className="kebab-wrapper" ref={kebabRef}>
+            <button
+              aria-label="메뉴"
+              className="kebab-btn"
+              onClick={() => setShowKebabMenu((v) => !v)}
+              type="button"
+            >
+              ⋮
+            </button>
+            {showKebabMenu ? (
+              <div className="kebab-dropdown">
+                <button onClick={openResetPopup} type="button">
+                  새 대국 시작
+                </button>
+                <button
+                  onClick={() => {
+                    loadCheckmateDemo();
+                    setShowKebabMenu(false);
+                  }}
+                  type="button"
+                >
+                  체크메이트 데모
+                </button>
+                <button
+                  onClick={() => {
+                    loadGeneralCaptureDemo();
+                    setShowKebabMenu(false);
+                  }}
+                  type="button"
+                >
+                  장 포획 데모
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </header>
 
-        <div className="status-list">
-          <div>
-            <span className="status-label">대국 상태</span>
-            <strong>
-              {gameState.status === 'ended' ? '종료' : `${sideLabel(gameState.currentTurn)} 차례`}
-            </strong>
+        {/* Online lobby */}
+        <div className="lobby-panel" role="group" aria-label="friend-invite-lobby">
+          <span className="status-label lobby-title">온라인 대전</span>
+          <div className="lobby-field-row">
+            <label className="lobby-label" htmlFor="guest-nickname-input">
+              닉네임
+            </label>
+            {guestSession ? (
+              <span className="lobby-nickname-display">{guestSession.nickname}</span>
+            ) : (
+              <>
+                <input
+                  className="lobby-input"
+                  id="guest-nickname-input"
+                  onChange={(event) => setGuestNickname(event.target.value)}
+                  placeholder="닉네임"
+                  type="text"
+                  value={guestNickname}
+                />
+                <button
+                  className="sm-btn"
+                  disabled={isLobbySubmitting}
+                  onClick={createGuestSession}
+                  type="button"
+                >
+                  시작
+                </button>
+              </>
+            )}
           </div>
-          <div>
-            <span className="status-label">초 체크</span>
-            <strong>{redCheck ? '예' : '아니오'}</strong>
+          <div className="lobby-field-row">
+            <label className="lobby-label" htmlFor="invite-code-input">
+              초대코드
+            </label>
+            <input
+              className="lobby-input lobby-code-input"
+              id="invite-code-input"
+              onChange={(event) => setInviteCodeInput(event.target.value.toUpperCase())}
+              placeholder="예: A2BC9D"
+              type="text"
+              value={inviteCodeInput}
+            />
+            <button
+              className="sm-btn"
+              disabled={isLobbySubmitting || !guestSession}
+              onClick={createInviteLobby}
+              type="button"
+            >
+              방 생성
+            </button>
+            <button
+              className="sm-btn"
+              disabled={isLobbySubmitting || !guestSession}
+              onClick={joinInviteLobby}
+              type="button"
+            >
+              입장
+            </button>
+            <button
+              className="sm-btn"
+              disabled={isLobbySubmitting}
+              onClick={refreshLobby}
+              type="button"
+            >
+              조회
+            </button>
           </div>
-          <div>
-            <span className="status-label">한 체크</span>
-            <strong>{blueCheck ? '예' : '아니오'}</strong>
+
+          {/* Status chips */}
+          <div className="status-chips">
+            {guestSession ? (
+              <span className="chip">{guestSession.nickname}</span>
+            ) : null}
+            {lobby ? (
+              <span className="chip">
+                {lobby.inviteCode} · {lobby.status === 'ready' ? '준비' : '대기'}
+              </span>
+            ) : null}
+            {isOnlineGame && mySide ? (
+              <span className="chip chip-side">{sideLabel(mySide)} 진영</span>
+            ) : null}
+            {isOnlineGame ? (
+              <span className={`chip ${isRealtimeConnected ? 'chip-ok' : 'chip-warn'}`}>
+                {isRealtimeConnected ? '연결됨' : '연결 중'}
+              </span>
+            ) : null}
           </div>
-          <div>
-            <span className="status-label">마지막 수</span>
-            <strong>{gameState.lastMove ? formatMoveRecord(gameState.lastMove) : '없음'}</strong>
-          </div>
+          {lobbyMessage ? <p className="lobby-message">{lobbyMessage}</p> : null}
         </div>
 
+        {/* Timers + resign */}
         {isOnlineGame && displayTimers ? (
           <div className="timer-row">
-            <div className={`timer-block${displayTimers.activeSide === 'red' && gameState.status === 'ongoing' ? ' timer-active' : ''}`}>
+            <div
+              className={`timer-block${displayTimers.activeSide === 'red' && gameState.status === 'ongoing' ? ' timer-active' : ''}`}
+            >
               <span className="timer-label">초 (Red)</span>
               <span className="timer-value">{formatMs(displayTimers.redMs)}</span>
             </div>
-            <div className={`timer-block${displayTimers.activeSide === 'blue' && gameState.status === 'ongoing' ? ' timer-active' : ''}`}>
+            <div
+              className={`timer-block${displayTimers.activeSide === 'blue' && gameState.status === 'ongoing' ? ' timer-active' : ''}`}
+            >
               <span className="timer-label">한 (Blue)</span>
               <span className="timer-value">{formatMs(displayTimers.blueMs)}</span>
             </div>
-            {isOnlineGame && !isGameEnded ? (
+            {!isGameEnded ? (
               <button className="resign-button" onClick={handleResign} type="button">
                 기권
               </button>
@@ -740,161 +978,54 @@ function App() {
         {gameResultText ? <div className="result-banner">{gameResultText}</div> : null}
         {currentCheckText ? <div className="check-banner">{currentCheckText}</div> : null}
 
-        <div className="action-row">
-          <div className="lobby-panel" role="group" aria-label="friend-invite-lobby">
-            <span className="status-label lobby-title">온라인 대전(친구 초대 코드)</span>
-            <div className="lobby-field-row">
-              <label className="lobby-label" htmlFor="guest-nickname-input">
-                닉네임
-              </label>
-              <input
-                className="lobby-input"
-                id="guest-nickname-input"
-                onChange={(event) => setGuestNickname(event.target.value)}
-                placeholder="게스트 닉네임"
-                type="text"
-                value={guestNickname}
-              />
-              <button
-                className="demo-button"
-                disabled={isLobbySubmitting}
-                onClick={createGuestSession}
-                type="button"
-              >
-                게스트 시작
-              </button>
-            </div>
-            <div className="lobby-field-row">
-              <label className="lobby-label" htmlFor="invite-code-input">
-                초대코드
-              </label>
-              <input
-                className="lobby-input lobby-code-input"
-                id="invite-code-input"
-                onChange={(event) => setInviteCodeInput(event.target.value.toUpperCase())}
-                placeholder="예: A2BC9D"
-                type="text"
-                value={inviteCodeInput}
-              />
-              <button
-                className="demo-button"
-                disabled={isLobbySubmitting || !guestSession}
-                onClick={createInviteLobby}
-                type="button"
-              >
-                방 생성
-              </button>
-              <button
-                className="demo-button"
-                disabled={isLobbySubmitting || !guestSession}
-                onClick={joinInviteLobby}
-                type="button"
-              >
-                방 입장
-              </button>
-              <button
-                className="demo-button"
-                disabled={isLobbySubmitting}
-                onClick={refreshLobby}
-                type="button"
-              >
-                상태 조회
-              </button>
-            </div>
-            <p className="helper-copy lobby-copy">
-              세션: {guestSession ? `${guestSession.nickname} (${guestSession.guestId})` : '없음'}
-            </p>
-            <p className="helper-copy lobby-copy">
-              로비:{' '}
-              {lobby
-                ? `${lobby.inviteCode} · ${lobby.status === 'ready' ? '입장 완료' : '대기 중'}`
-                : '없음'}
-            </p>
-            {isOnlineGame ? (
-              <p className="helper-copy lobby-copy">
-                내 진영: {mySide ? sideLabel(mySide) : '미확정'}
-              </p>
-            ) : null}
-            {isOnlineGame ? (
-              <p className="helper-copy lobby-copy">
-                실시간 연결: {isRealtimeConnected ? '연결됨' : '연결 중'}
-              </p>
-            ) : null}
-            {lobbyMessage ? <p className="helper-copy lobby-copy">{lobbyMessage}</p> : null}
-          </div>
-          <div className="layout-row" role="group" aria-label="opening-layout">
-            <span className="status-label layout-title">기물 배치</span>
-            <div className="layout-side-group">
-              <span className="layout-side-label">한</span>
-              <div className="layout-button-group">
-                {(Object.keys(backRankLayoutLabels) as BackRankLayout[]).map((layoutKey) => (
-                  <button
-                    className={`layout-button ${blueBackRankLayout === layoutKey ? 'layout-button-active' : ''}`}
-                    key={`blue-${layoutKey}`}
-                    onClick={() => changeBackRankLayout('blue', layoutKey)}
-                    type="button"
-                  >
-                    {backRankLayoutLabels[layoutKey]}
-                  </button>
-                ))}
+        {/* Chat panel */}
+        <div className="chat-panel">
+          <h3>채팅</h3>
+          <div className="chat-messages">
+            {chatMessages.map((msg, idx) => (
+              <div key={idx} className={`chat-message ${msg.guestId === guestSession?.guestId ? 'my-message' : 'opponent-message'}`}>
+                <div className="chat-header">
+                  <span className="nickname">{msg.nickname}</span>
+                  <span className="timestamp">{new Date(msg.timestamp).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                <p className="text">{msg.text}</p>
               </div>
-            </div>
-            <div className="layout-side-group">
-              <span className="layout-side-label">초</span>
-              <div className="layout-button-group">
-                {(Object.keys(backRankLayoutLabels) as BackRankLayout[]).map((layoutKey) => (
-                  <button
-                    className={`layout-button ${redBackRankLayout === layoutKey ? 'layout-button-active' : ''}`}
-                    key={`red-${layoutKey}`}
-                    onClick={() => changeBackRankLayout('red', layoutKey)}
-                    type="button"
-                  >
-                    {backRankLayoutLabels[layoutKey]}
-                  </button>
-                ))}
-              </div>
-            </div>
+            ))}
+            <div ref={chatEndRef} />
           </div>
-          <button className="reset-button" onClick={() => resetGame()} type="button">
-            초기 배치로 되돌리기
-          </button>
-          <button className="demo-button" onClick={loadCheckmateDemo} type="button">
-            체크메이트 데모 시나리오 로드
-          </button>
-          <button className="demo-button" onClick={loadGeneralCaptureDemo} type="button">
-            장 포획 데모 시나리오 로드
-          </button>
-          <p className="helper-copy">
-            {gameState.status === 'ended'
-              ? '대국이 종료되었습니다. 초기 배치로 되돌려 다시 시작할 수 있습니다.'
-              : selectedPiece
-                ? `${getPieceLabel(selectedPiece.kind, selectedPiece.side)} 선택됨 · 이동 가능 ${legalMoves.length}곳`
-                : '현재 턴의 말을 선택하면 이동 가능한 칸이 강조됩니다.'}
-          </p>
-        </div>
-
-        <div className="log-panel">
-          <h2>기보 로그</h2>
-          <p className="helper-copy">
-            {gameState.lastMove
-              ? formatMoveRecord(gameState.lastMove)
-              : '아직 수가 기록되지 않았습니다.'}
-          </p>
-          <ol className="move-log-list">
-            {gameState.moveHistory.length === 0 ? <li>대국 시작 대기 중</li> : null}
-            {gameState.moveHistory
-              .slice()
-              .reverse()
-              .map((moveRecord) => (
-                <li key={moveRecord.turn}>{formatMoveRecord(moveRecord)}</li>
-              ))}
-          </ol>
+          <div className="chat-input-group">
+            <input
+              type="text"
+              className="chat-input"
+              placeholder="메시지 입력..."
+              value={chatInput}
+              onChange={(e) => setChatInput(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendChat();
+                }
+              }}
+              disabled={!isOnlineGame || !guestSession || !lobby}
+            />
+            <button
+              className="chat-send-btn"
+              onClick={handleSendChat}
+              disabled={!chatInput.trim() || !isOnlineGame || !guestSession || !lobby}
+            >
+              전송
+            </button>
+          </div>
         </div>
       </section>
 
       <section className={`board-panel${isGameEnded ? ' game-ended' : ''}`}>
         <header>
-          <h2>초기 대국판</h2>
+          <h2>
+            {isOnlineGame && mySide
+              ? `${sideLabel(mySide)} 진영 · ${gameState.status === 'ongoing' ? (gameState.currentTurn === mySide ? '내 차례' : '상대 차례') : '종료'}`
+              : `${gameState.status === 'ended' ? '종료' : `${sideLabel(gameState.currentTurn)} 차례`}`}
+          </h2>
           <span>{gameState.board.filter(Boolean).length}개 기물</span>
         </header>
 
@@ -912,7 +1043,7 @@ function App() {
               ))}
             </div>
 
-            <div className="board-grid" aria-label="jangi-board-preview">
+            <div className={`board-grid${isOnlineGame && mySide === 'blue' ? ' board-flipped' : ''}`} aria-label="jangi-board-preview">
               {boardCells.map(({ x, y, piece }) => {
                 const isPalace = x >= 3 && x <= 5 && ((y >= 0 && y <= 2) || (y >= 7 && y <= 9));
                 const isDiagDownRight =
@@ -946,10 +1077,11 @@ function App() {
                 const isCheckedGeneral =
                   (redCheck && isSamePosition(redGeneralPosition, { x, y })) ||
                   (blueCheck && isSamePosition(blueGeneralPosition, { x, y }));
+                const isOpponentPiece = Boolean(isOnlineGame && piece && mySide && piece.side !== mySide);
 
                 return (
                   <button
-                    className={`board-cell${isPalace ? ' palace-cell' : ''}${isSelected ? ' selected-cell' : ''}${isMoveTarget ? ' move-target' : ''}${isCapturable ? ' capture-target' : ''}${isCheckedGeneral ? ' checked-general-cell' : ''}${isTopEdge ? ' top-edge' : ''}${isBottomEdge ? ' bottom-edge' : ''}${isLeftEdge ? ' left-edge' : ''}${isRightEdge ? ' right-edge' : ''}`}
+                    className={`board-cell${isPalace ? ' palace-cell' : ''}${isSelected ? ' selected-cell' : ''}${isMoveTarget ? ' move-target' : ''}${isCapturable ? ' capture-target' : ''}${isCheckedGeneral ? ' checked-general-cell' : ''}${isTopEdge ? ' top-edge' : ''}${isBottomEdge ? ' bottom-edge' : ''}${isLeftEdge ? ' left-edge' : ''}${isRightEdge ? ' right-edge' : ''}${piece ? ' cell-has-piece' : ''}${isOpponentPiece ? ' cell-opponent' : ''}`}
                     disabled={gameState.status === 'ended'}
                     key={`${x}-${y}`}
                     onClick={() => handleCellClick(x, y)}
@@ -999,9 +1131,17 @@ function App() {
         </div>
       </section>
 
-      {gameResultText ? (
+      {gameResultText && !isResultOverlayClosed ? (
         <div className="result-overlay" role="dialog" aria-modal="true" aria-label="game-result">
           <div className="result-card">
+            <button
+              aria-label="결과 팝업 닫기"
+              className="result-close-button"
+              onClick={() => setIsResultOverlayClosed(true)}
+              type="button"
+            >
+              닫기
+            </button>
             <p className="eyebrow">Game Result</p>
             <h2>{gameResultText}</h2>
             <p className="helper-copy">
@@ -1023,21 +1163,142 @@ function App() {
             {isOnlineGame ? (
               <>
                 {rematchRequestedBy && rematchRequestedBy !== guestSession?.guestId ? (
-                  <p className="helper-copy" style={{ color: '#5a8ddb', fontWeight: 600 }}>
-                    상대가 재대국을 요청했습니다!
-                  </p>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button className="reset-button" onClick={handleRematch} type="button">
+                      재대국 수락
+                    </button>
+                    <button
+                      className="reset-button"
+                      onClick={handleRejectRematch}
+                      style={{ background: '#e74c3c' }}
+                      type="button"
+                    >
+                      거절
+                    </button>
+                  </div>
                 ) : rematchRequestedBy === guestSession?.guestId ? (
                   <p className="helper-copy">상대의 수락을 기다리는 중...</p>
-                ) : null}
-                <button className="reset-button" onClick={handleRematch} type="button">
-                  재대국 요청
-                </button>
+                ) : (
+                  <button className="reset-button" onClick={handleRematch} type="button">
+                    재대국 요청
+                  </button>
+                )}
               </>
             ) : (
               <button className="reset-button" onClick={() => resetGame()} type="button">
                 다시 시작
               </button>
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Layout selection popup */}
+      {showLayoutPopup ? (
+        <div className="layout-popup-overlay">
+          <div className={`layout-popup-card${isOnlineGame && mySide ? ` popup-theme-${mySide === 'blue' ? 'han' : 'cho'}` : ''}`}>
+            <h2 className={`popup-title${isOnlineGame && mySide ? ` popup-title-${mySide === 'blue' ? 'han' : 'cho'}` : ''}`}>
+              {isOnlineGame && mySide ? `${sideLabel(mySide)} 진영입니다` : '기물 배치 선택'}
+            </h2>
+            <p className="popup-desc">
+              {isOnlineGame
+                ? mySide === 'blue' && opponentLayout
+                  ? '초나라 배치 선택이 완료되었습니다. 한나라 배치를 선택하세요.'
+                  : opponentLayout
+                    ? '한나라 배치를 확인하고 초나라 배치를 선택하세요.'
+                    : '내 진영 기물 배치를 선택하세요.'
+                : '양 진영 기물 배치를 선택하세요.'}
+            </p>
+            {isOnlineGame && opponentLayout && mySide === 'red' ? (
+              <div className="popup-layout-section">
+                <span className="popup-layout-label">상대방 배치 (한 진영)</span>
+                <div className="opponent-layout-display">{backRankLayoutLabels[opponentLayout]}</div>
+              </div>
+            ) : null}
+            {isOnlineGame ? (
+              <div className="popup-layout-section">
+                <span className="popup-layout-label">{opponentLayout ? '당신의 배치' : '내 배치'}</span>
+                <div className="layout-button-group">
+                  {(Object.keys(backRankLayoutLabels) as BackRankLayout[]).map((layoutKey) => (
+                    <button
+                      className={`layout-button ${popupLayout === layoutKey ? 'layout-button-active' : ''}`}
+                      disabled={mySide === 'blue' && pendingLayoutSubmit}
+                      key={layoutKey}
+                      onClick={() => {
+                        if (mySide === 'blue' && pendingLayoutSubmit) return;
+                        setPopupLayout(layoutKey);
+                      }}
+                      type="button"
+                    >
+                      {backRankLayoutLabels[layoutKey]}
+                    </button>
+                  ))}
+                </div>
+                {mySide === 'blue' && pendingLayoutSubmit ? (
+                  <p className="helper-copy">한나라 배치 선택이 완료되어 더 이상 변경할 수 없습니다.</p>
+                ) : null}
+              </div>
+            ) : (
+              <>
+                <div className="popup-layout-section">
+                  <span className="popup-layout-label">한 (Blue)</span>
+                  <div className="layout-button-group">
+                    {(Object.keys(backRankLayoutLabels) as BackRankLayout[]).map((layoutKey) => (
+                      <button
+                        className={`layout-button ${blueBackRankLayout === layoutKey ? 'layout-button-active' : ''}`}
+                        key={`blue-${layoutKey}`}
+                        onClick={() => changeBackRankLayout('blue', layoutKey)}
+                        type="button"
+                      >
+                        {backRankLayoutLabels[layoutKey]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="popup-layout-section">
+                  <span className="popup-layout-label">초 (Red)</span>
+                  <div className="layout-button-group">
+                    {(Object.keys(backRankLayoutLabels) as BackRankLayout[]).map((layoutKey) => (
+                      <button
+                        className={`layout-button ${redBackRankLayout === layoutKey ? 'layout-button-active' : ''}`}
+                        key={`red-${layoutKey}`}
+                        onClick={() => changeBackRankLayout('red', layoutKey)}
+                        type="button"
+                      >
+                        {backRankLayoutLabels[layoutKey]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+            <div className="popup-actions">
+              {isOnlineGame ? (
+                <>
+                  <button
+                    className="layout-confirm-btn"
+                    disabled={pendingLayoutSubmit}
+                    onClick={confirmOnlineLayout}
+                    type="button"
+                  >
+                    {pendingLayoutSubmit ? '대기 중...' : '확인'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="layout-confirm-btn" onClick={confirmOfflineLayout} type="button">
+                    확인
+                  </button>
+                  <button
+                    className="layout-cancel-btn"
+                    onClick={() => setShowLayoutPopup(false)}
+                    type="button"
+                  >
+                    취소
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       ) : null}

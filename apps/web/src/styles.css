@@ -317,11 +317,6 @@ p {
   background: transparent;
   cursor: pointer;
   padding: 0;
-  transition:
-    transform 120ms ease,
-    box-shadow 120ms ease,
-    border-color 120ms ease,
-    background 120ms ease;
 }
 
 .board-cell::before,
@@ -363,7 +358,21 @@ p {
 }
 
 .board-cell:hover {
-  transform: translateY(-1px) scale(1.02);
+  /* 기물이 없는 셀: hover 효과 없음 — cell-has-piece에서만 적용 */
+}
+
+/* 기물이 있는 셀: 기물 토큰만 확대 (셀 자체를 transform하면 ::before/::after 선이 굵어짐) */
+.board-cell.cell-has-piece:hover .piece-token {
+  transform: scale(1.12);
+}
+
+/* 온라인 대전 중 상대 기물: hover 효과 없음 */
+.board-cell.cell-opponent {
+  cursor: default;
+}
+
+.board-cell.cell-opponent:hover .piece-token {
+  transform: none;
 }
 
 .board-cell:disabled {
@@ -540,6 +549,7 @@ p {
   border: 1px solid rgba(87, 55, 21, 0.12);
   background: rgba(255, 254, 248, 0.2);
   box-shadow: 0 8px 16px rgba(99, 66, 29, 0.12);
+  transition: transform 120ms ease;
 }
 
 .piece-large {
@@ -590,8 +600,25 @@ p {
   border-radius: 24px;
   background: rgba(255, 248, 236, 0.96);
   box-shadow: 0 24px 48px rgba(56, 34, 14, 0.2);
+  position: relative;
 }
 
+.result-close-button {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: #fff;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  line-height: 1;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.result-close-button:hover {
+  background: #f4f4f4;
+}
 .result-card h2 {
   margin: 0;
 }
@@ -666,6 +693,33 @@ p {
   transform: none;
 }
 
+.board-panel.game-ended .board-cell:hover .piece-token {
+  transform: none;
+}
+
+/* 보드 180도 회전 (blue 진영 플레이어: 자신의 기물을 하단에 표시) */
+.board-grid.board-flipped {
+  transform: rotate(180deg);
+}
+
+/* 기물 토큰은 다시 정방향으로 */
+.board-grid.board-flipped .piece-token {
+  transform: rotate(180deg);
+}
+
+.board-grid.board-flipped .cell-has-piece:hover .piece-token {
+  transform: rotate(180deg) scale(1.12);
+}
+
+.board-grid.board-flipped .cell-opponent:hover .piece-token {
+  transform: rotate(180deg);
+}
+
+/* 셀 내 좌표 텍스트도 정방향 */
+.board-grid.board-flipped .cell-coordinate {
+  transform: rotate(180deg);
+}
+
 @media (max-width: 640px) {
   .app-shell {
     padding: 16px;
@@ -687,4 +741,425 @@ p {
   .demo-button {
     width: 100%;
   }
+}
+
+/* ===== Hero header ===== */
+.hero-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* ===== Kebab menu ===== */
+.kebab-wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.kebab-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--text-secondary, #666);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+
+.kebab-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.kebab-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 100;
+  min-width: 160px;
+  overflow: hidden;
+}
+
+.kebab-dropdown button {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  font-size: 0.88rem;
+  cursor: pointer;
+  color: #222;
+  transition: background 0.1s;
+}
+
+.kebab-dropdown button:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* ===== Compact buttons ===== */
+.sm-btn {
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: #f5f5f5;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.sm-btn:hover:not(:disabled) {
+  background: #e8e8e8;
+}
+
+.sm-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ===== Status chips ===== */
+.status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  background: rgba(0, 0, 0, 0.06);
+  color: #444;
+}
+
+.chip-ok {
+  background: rgba(30, 120, 50, 0.12);
+  color: #1d6e35;
+}
+
+.chip-warn {
+  background: rgba(180, 100, 20, 0.12);
+  color: #a05a00;
+}
+
+.chip-side {
+  background: rgba(80, 60, 180, 0.1);
+  color: #3d3090;
+  font-weight: 600;
+}
+
+.lobby-message {
+  font-size: 0.82rem;
+  color: #666;
+  margin: 6px 0 0;
+}
+
+/* ===== Layout selection popup ===== */
+.layout-popup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.layout-popup-card {
+  width: min(380px, calc(100% - 32px));
+  background: #fff;
+  border-radius: 20px;
+  padding: 28px 24px 24px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.popup-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.popup-desc {
+  font-size: 0.86rem;
+  color: #555;
+  margin: -8px 0 0;
+}
+
+.popup-layout-section {
+  display: grid;
+  gap: 8px;
+}
+
+.popup-layout-label {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #333;
+}
+
+.popup-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.layout-confirm-btn {
+  padding: 9px 22px;
+  border-radius: 10px;
+  border: 0;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.layout-confirm-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.layout-confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.layout-cancel-btn {
+  padding: 9px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: transparent;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.layout-cancel-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* ===== Log panel accordion ===== */
+.log-panel {
+  border: 0;
+  padding: 0;
+  margin: 12px 0 0;
+}
+
+.log-panel > summary {
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 12px 0;
+  user-select: none;
+  color: #222;
+  transition: color 0.15s;
+}
+
+.log-panel > summary:hover {
+  color: #5a8ddb;
+}
+
+.log-panel[open] > summary {
+  margin-bottom: 8px;
+}
+
+.log-panel .move-log-list {
+  margin: 8px 0 0 20px;
+  padding: 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.log-panel .move-log-list li {
+  font-size: 0.88rem;
+  margin-bottom: 4px;
+}
+
+/* ===== Chat panel ===== */
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 220px;
+  margin: 12px 0 0;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #fafafa;
+  overflow: hidden;
+}
+
+.chat-panel > h3 {
+  margin: 0;
+  padding: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-bottom: 1px solid #e0e0e0;
+  color: #222;
+}
+
+.chat-messages {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-message {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border-radius: 6px;
+  max-width: 85%;
+  word-wrap: break-word;
+}
+
+.chat-message.my-message {
+  align-self: flex-end;
+  background: #d4e4ff;
+  border-left: 3px solid #5a8ddb;
+}
+
+.chat-message.opponent-message {
+  align-self: flex-start;
+  background: #fff5e6;
+  border-left: 3px solid #ffb84d;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-message .nickname {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #333;
+}
+
+.chat-message .timestamp {
+  font-size: 0.75rem;
+  color: #999;
+  white-space: nowrap;
+}
+
+.chat-message .text {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #222;
+  line-height: 1.4;
+}
+
+.chat-input-group {
+  display: flex;
+  gap: 6px;
+  padding: 10px;
+  border-top: 1px solid #e0e0e0;
+  background: #fff;
+}
+
+.chat-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+
+.chat-input:focus {
+  outline: none;
+  border-color: #5a8ddb;
+  box-shadow: 0 0 0 2px rgba(90, 141, 219, 0.1);
+}
+
+.chat-input:disabled {
+  background: #f5f5f5;
+  color: #999;
+  cursor: not-allowed;
+}
+
+.chat-send-btn {
+  padding: 6px 14px;
+  background: #5a8ddb;
+  color: white;
+  border: 0;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.chat-send-btn:hover:not(:disabled) {
+  background: #4a7ac5;
+}
+
+.chat-send-btn:disabled {
+  background: #c0c0c0;
+  cursor: not-allowed;
+}
+
+/* ===== Nickname display ===== */
+.lobby-nickname-display {
+  flex: 1;
+  padding: 8px 12px;
+  background: #f5f5f5;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  color: #333;
+  display: flex;
+  align-items: center;
+}
+
+/* ===== Opponent layout display ===== */
+.opponent-layout-display {
+  padding: 10px 12px;
+  background: rgba(90, 141, 219, 0.08);
+  border-left: 3px solid #5a8ddb;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+/* ===== Popup nation coloring ===== */
+.popup-theme-han {
+  border-top: 4px solid #d63031;
+}
+
+.popup-theme-cho {
+  border-top: 4px solid #0984e3;
+}
+
+.popup-title-han {
+  color: #c92a2a;
+}
+
+.popup-title-cho {
+  color: #0066cc;
+}
+
+.popup-theme-han .popup-layout-label {
+  color: #c92a2a;
+}
+
+.popup-theme-cho .popup-layout-label {
+  color: #0066cc;
 }

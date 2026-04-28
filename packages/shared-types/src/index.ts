@@ -13,6 +13,12 @@ export type GameStatus = 'ongoing' | 'ended';
 
 export type GameEndReason = 'checkmate' | 'general-captured' | 'timeout' | 'resign' | null;
 
+export type BackRankLayout =
+  | 'elephant-horse-elephant-horse'
+  | 'horse-elephant-horse-elephant'
+  | 'elephant-horse-horse-elephant'
+  | 'horse-elephant-elephant-horse';
+
 export interface Position {
   x: number;
   y: number;
@@ -142,4 +148,41 @@ export interface GameResignSocketPayload {
 export interface GameRematchSocketPayload {
   inviteCode: string;
   guestId: string;
+}
+
+export interface GameRematchRejectSocketPayload {
+  inviteCode: string;
+  guestId: string;
+}
+
+export interface GameReadySocketPayload {
+  inviteCode: string;
+  guestId: string;
+  layout: BackRankLayout;
+}
+
+export interface GameLayoutSelectSocketEvent {
+  // Signal to client to show layout selection
+}
+
+export interface GameOpponentReadySocketEvent {
+  opponentLayout: BackRankLayout;
+  opponentSide: Side;
+}
+
+export interface ChatMessage {
+  guestId: string;
+  nickname: string;
+  text: string;
+  timestamp: number;
+}
+
+export interface GameChatSocketPayload {
+  inviteCode: string;
+  guestId: string;
+  text: string;
+}
+
+export interface GameChatSocketEvent {
+  message: ChatMessage;
 }

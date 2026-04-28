@@ -260,7 +260,7 @@ describe('requestRematch', () => {
     expect(result.started).toBe(false);
   });
 
-  it('양쪽 모두 요청하면 새 게임이 시작된다', () => {
+  it('양쪽 모두 요청하면 레이아웃 선택 단계로 전환된다', () => {
     const { host, guest, lobby } = setupReadyLobby(service);
     endGame(service, lobby.inviteCode, host.guestId);
 
@@ -268,11 +268,7 @@ describe('requestRematch', () => {
     const result = service.requestRematch(lobby.inviteCode, guest.guestId);
 
     expect(result.started).toBe(true);
-    if (result.started) {
-      expect(result.gameState.status).toBe('ongoing');
-      expect(result.gameState.moveHistory).toHaveLength(0);
-      expect(result.timers.redMs).toBeGreaterThan(0);
-    }
+    expect(service.getGameSession(lobby.inviteCode)).toBeNull();
   });
 
   it('참가자가 아닌 사람이 요청하면 에러', () => {
@@ -287,10 +283,9 @@ describe('requestRematch', () => {
     endGame(service, lobby.inviteCode, host.guestId);
 
     service.requestRematch(lobby.inviteCode, host.guestId);
-    service.requestRematch(lobby.inviteCode, guest.guestId); // starts game
+    service.requestRematch(lobby.inviteCode, guest.guestId); // enters layout select phase
 
-    // 2번째 게임 종료 후 다시 재대국 요청
-    service.resignGame(lobby.inviteCode, host.guestId);
+    // 기존 요청이 비워졌는지 확인: 다시 host 요청 시 다시 대기 상태여야 함
     const r2 = service.requestRematch(lobby.inviteCode, host.guestId);
     expect(r2.started).toBe(false); // still waiting for guest
     const r3 = service.requestRematch(lobby.inviteCode, guest.guestId);

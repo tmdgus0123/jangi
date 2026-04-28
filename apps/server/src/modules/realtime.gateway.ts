@@ -8,8 +8,13 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import type {
+  GameChatSocketPayload,
   GameErrorSocketEvent,
+  GameLayoutSelectSocketEvent,
   GameMoveSocketPayload,
+  GameOpponentReadySocketEvent,
+  GameReadySocketPayload,
+  GameRematchRejectSocketPayload,
   GameRematchSocketPayload,
   GameResignSocketPayload,
   GameStartSocketEvent,
@@ -40,7 +45,26 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   handleConnection() {}
 
   handleDisconnect(client: Socket) {
+    const joinedInfo = this.clientLobbyMap.get(client.id);
     this.clientLobbyMap.delete(client.id);
+
+    if (!joinedInfo) return;
+
+    // If game is in progress, opponent wins
+    try {
+      const result = this.lobbyService.disconnectClient(joinedInfo.inviteCode, joinedInfo.guestId);
+      if (result) {
+        const { gameState } = result;
+        this.server.to(joinedInfo.inviteCode).emit('game:update', {
+          lobby: result.lobby,
+          gameState,
+          timers: result.timers,
+        } as GameUpdateSocketEvent);
+        this.stopTickInterval(joinedInfo.inviteCode);
+      }
+    } catch {
+      // ignore errors during disconnect
+    }
   }
 
   @SubscribeMessage('lobby:join')
@@ -71,17 +95,21 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       return;
     }
 
-    try {
-      const { gameState, timers } = this.lobbyService.ensureGameSession(normalizedCode);
-      const gameStartEvent: GameStartSocketEvent = {
-        lobby,
-        gameState,
-        timers,
-      };
-      this.server.to(normalizedCode).emit('game:start', gameStartEvent);
-      this.startTickInterval(normalizedCode);
-    } catch (error) {
-      this.emitGameError(client, 'GAME_START_FAILED', this.toErrorMessage(error));
+    // Check if game already in progress (reconnection)
+    const existingGame = this.lobbyService.getGameSession(normalizedCode);
+    if (existingGame) {
+      try {
+        const timers = this.lobbyService.computeCurrentTimers(normalizedCode);
+        const gameStartEvent: GameStartSocketEvent = { lobby, gameState: existingGame, timers };
+        client.emit('game:start', gameStartEvent);
+        this.startTickInterval(normalizedCode);
+      } catch {
+        // timer not yet initialized — ignore
+      }
+    } else {
+      // Lobby ready, waiting for both players to select layout
+      const layoutSelectEvent: GameLayoutSelectSocketEvent = {};
+      client.emit('game:layout-select', layoutSelectEvent);
     }
   }
 
@@ -116,6 +144,36 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
   }
 
+  @SubscribeMessage('game:ready')
+  handleGameReady(@ConnectedSocket() client: Socket, @MessageBody() payload: GameReadySocketPayload) {
+    const normalizedCode = payload.inviteCode.trim().toUpperCase();
+    try {
+      const lobby = this.lobbyService.getLobbyByInviteCode(normalizedCode);
+      if (!lobby) throw new Error('LOBBY_NOT_FOUND');
+
+      const readyingSide = payload.guestId === lobby.host.guestId ? 'red' : 'blue';
+
+      const result = this.lobbyService.submitReady(normalizedCode, payload.guestId, payload.layout);
+
+      if (!result) {
+        // First player ready, notify opponent
+        const opponentReadyEvent: GameOpponentReadySocketEvent = {
+          opponentLayout: payload.layout,
+          opponentSide: readyingSide,
+        };
+        this.server.to(normalizedCode).emit('game:opponent-ready', opponentReadyEvent);
+        return;
+      }
+
+      const { lobby: finalLobby, gameState, timers } = result;
+      const gameStartEvent: GameStartSocketEvent = { lobby: finalLobby, gameState, timers };
+      this.server.to(normalizedCode).emit('game:start', gameStartEvent);
+      this.startTickInterval(normalizedCode);
+    } catch (error) {
+      this.emitGameError(client, this.toErrorCode(error), this.toErrorMessage(error));
+    }
+  }
+
   @SubscribeMessage('game:resign')
   handleGameResign(@ConnectedSocket() client: Socket, @MessageBody() payload: GameResignSocketPayload) {
     const joinedInfo = this.clientLobbyMap.get(client.id);
@@ -145,10 +203,54 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         this.server.to(normalizedCode).emit('game:rematch-requested', { guestId: payload.guestId });
         return;
       }
-      const { lobby, gameState, timers } = result;
-      const gameStartEvent: GameStartSocketEvent = { lobby, gameState, timers };
-      this.server.to(normalizedCode).emit('game:start', gameStartEvent);
-      this.startTickInterval(normalizedCode);
+      this.server.to(normalizedCode).emit('game:layout-select', {} as GameLayoutSelectSocketEvent);
+    } catch (error) {
+      this.emitGameError(client, this.toErrorCode(error), this.toErrorMessage(error));
+    }
+  }
+
+  @SubscribeMessage('game:rematch-reject')
+  handleGameRematchReject(@ConnectedSocket() client: Socket, @MessageBody() payload: GameRematchRejectSocketPayload) {
+    const normalizedCode = payload.inviteCode.trim().toUpperCase();
+    try {
+      this.lobbyService.rejectRematch(normalizedCode, payload.guestId);
+      // Notify room that rematch request was rejected
+      this.server.to(normalizedCode).emit('game:rematch-rejected', { guestId: payload.guestId });
+    } catch (error) {
+      this.emitGameError(client, this.toErrorCode(error), this.toErrorMessage(error));
+    }
+  }
+
+  @SubscribeMessage('game:chat')
+  handleGameChat(@ConnectedSocket() client: Socket, @MessageBody() payload: GameChatSocketPayload) {
+    const normalizedCode = payload.inviteCode.trim().toUpperCase();
+    try {
+      const lobby = this.lobbyService.getLobbyByInviteCode(normalizedCode);
+      if (!lobby) {
+        this.emitGameError(client, 'LOBBY_NOT_FOUND', '로비를 찾을 수 없습니다.');
+        return;
+      }
+
+      let guestSession: any = null;
+      if (lobby.host.guestId === payload.guestId) {
+        guestSession = lobby.host;
+      } else if (lobby.guest?.guestId === payload.guestId) {
+        guestSession = lobby.guest;
+      }
+
+      if (!guestSession) {
+        this.emitGameError(client, 'NOT_LOBBY_PARTICIPANT', '해당 로비 참가자가 아닙니다.');
+        return;
+      }
+
+      const message = {
+        guestId: payload.guestId,
+        nickname: guestSession.nickname,
+        text: payload.text,
+        timestamp: Date.now(),
+      };
+
+      this.server.to(normalizedCode).emit('game:chat', { message });
     } catch (error) {
       this.emitGameError(client, this.toErrorCode(error), this.toErrorMessage(error));
     }
