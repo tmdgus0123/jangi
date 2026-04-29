@@ -5,8 +5,6 @@ import type {
   CreateLobbyRequest,
   GameChatSocketEvent,
   GameChatSocketPayload,
-  GameErrorSocketEvent,
-  GameLayoutSelectSocketEvent,
   GameMoveSocketPayload,
   GameOpponentReadySocketEvent,
   GameReadySocketPayload,
@@ -387,7 +385,7 @@ function App() {
       setLobby(event.lobby);
     });
 
-    socket.on('game:layout-select', (_event: GameLayoutSelectSocketEvent) => {
+    socket.on('game:layout-select', () => {
       if (!pendingLayoutSubmitRef.current) {
         setShowLayoutPopup(true);
         setPendingLayoutSubmit(false);
@@ -439,7 +437,7 @@ function App() {
       setIsResultOverlayClosed(false);
     });
 
-    socket.on('game:rematch-rejected', (event: { guestId: string }) => {
+    socket.on('game:rematch-rejected', () => {
       setRematchRequestedBy(null);
       setLobbyMessage('상대방이 재대국을 거절했습니다.');
     });
@@ -1026,7 +1024,7 @@ function App() {
               ? `${sideLabel(mySide)} 진영 · ${gameState.status === 'ongoing' ? (gameState.currentTurn === mySide ? '내 차례' : '상대 차례') : '종료'}`
               : `${gameState.status === 'ended' ? '종료' : `${sideLabel(gameState.currentTurn)} 차례`}`}
           </h2>
-          <span>{gameState.board.filter(Boolean).length}개 기물</span>
+          <span>{gameState.moveHistory.length} 수</span>
         </header>
 
         <div className="board-frame">

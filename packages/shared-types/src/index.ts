@@ -161,9 +161,7 @@ export interface GameReadySocketPayload {
   layout: BackRankLayout;
 }
 
-export interface GameLayoutSelectSocketEvent {
-  // Signal to client to show layout selection
-}
+export type GameLayoutSelectSocketEvent = Record<string, never>;
 
 export interface GameOpponentReadySocketEvent {
   opponentLayout: BackRankLayout;

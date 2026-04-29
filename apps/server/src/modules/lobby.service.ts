@@ -332,6 +332,9 @@ export class LobbyService {
 
   disconnectClient(inviteCode: string, guestId: string): GameResult | null {
     const normalizedCode = inviteCode.toUpperCase();
+    if (!this.isLobbyParticipant(normalizedCode, guestId)) {
+      return null;
+    }
     const gameState = this.gameSessions.get(normalizedCode);
     if (!gameState || gameState.status === 'ended') {
       return null;
